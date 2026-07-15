@@ -37,7 +37,7 @@ function Login() {
 
     setLoading(true);
     try {
-      const res = await fetch("http://localhost:8080/api/auth/login", {
+      const res = await fetch(window.API_BASE_URL + "/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form)
@@ -82,7 +82,7 @@ function Login() {
 
     setForgotLoading(true);
     try {
-      const res = await fetch(`http://localhost:8080/api/auth/forgot-password?email=${resetEmail}`, {
+      const res = await fetch(`${window.API_BASE_URL}/api/auth/forgot-password?email=${resetEmail}`, {
         method: "POST"
       });
       const data = await res.json();
@@ -110,7 +110,7 @@ function Login() {
 
     setForgotLoading(true);
     try {
-      const res = await fetch("http://localhost:8080/api/auth/reset-password", {
+      const res = await fetch(window.API_BASE_URL + "/api/auth/reset-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: resetEmail, otp: resetOtp, password: newPassword })

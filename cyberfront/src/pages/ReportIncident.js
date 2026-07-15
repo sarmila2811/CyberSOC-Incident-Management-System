@@ -38,7 +38,7 @@ function ReportIncident() {
 
     setLoading(true);
     try {
-      const res = await fetch("http://localhost:8080/api/incidents/report", {
+      const res = await fetch(window.API_BASE_URL + "/api/incidents/report", {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",

@@ -44,7 +44,7 @@ function Settings() {
   const fetchProfileDetails = async () => {
     if (!user?.id) return;
     try {
-      const res = await fetch(`http://localhost:8080/api/users/${user.id}`, {
+      const res = await fetch(`${window.API_BASE_URL}/api/users/${user.id}`, {
         headers: { "Authorization": `Bearer ${localStorage.getItem("token")}` }
       });
       if (res.ok) {
@@ -103,7 +103,7 @@ function Settings() {
     formData.append("file", imageFile);
 
     try {
-      const res = await fetch(`http://localhost:8080/api/users/${user.id}/profile-image`, {
+      const res = await fetch(`${window.API_BASE_URL}/api/users/${user.id}/profile-image`, {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${localStorage.getItem("token")}`
@@ -138,7 +138,7 @@ function Settings() {
     setErrorMsg("");
 
     try {
-      const res = await fetch(`http://localhost:8080/api/users/${user.id}/profile-image`, {
+      const res = await fetch(`${window.API_BASE_URL}/api/users/${user.id}/profile-image`, {
         method: "DELETE",
         headers: {
           "Authorization": `Bearer ${localStorage.getItem("token")}`
@@ -170,7 +170,7 @@ function Settings() {
     setLoading(true);
 
     try {
-      const res = await fetch(`http://localhost:8080/api/users/${user.id}`, {
+      const res = await fetch(`${window.API_BASE_URL}/api/users/${user.id}`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -210,7 +210,7 @@ function Settings() {
 
     setLoading(true);
     try {
-      const res = await fetch(`http://localhost:8080/api/users/${user.id}/reset-password`, {
+      const res = await fetch(`${window.API_BASE_URL}/api/users/${user.id}/reset-password`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -307,7 +307,7 @@ function Settings() {
                       <div>
                         {profile.profileImage ? (
                           <img
-                            src={`http://localhost:8080${profile.profileImage}`}
+                            src={`${window.API_BASE_URL}${profile.profileImage}`}
                             alt="Avatar"
                             className="rounded-circle border border-2 border-primary"
                             style={{ width: "80px", height: "80px", objectFit: "cover" }}

@@ -25,9 +25,9 @@ function EmployeeManagement() {
       const headers = { "Authorization": `Bearer ${localStorage.getItem("token")}` };
       
       const [resUsers, resActive, resResolved] = await Promise.all([
-        fetch("http://localhost:8080/api/users", { headers }),
-        fetch("http://localhost:8080/api/incidents", { headers }),
-        fetch("http://localhost:8080/api/incidents/resolved", { headers })
+        fetch(window.API_BASE_URL + "/api/users", { headers }),
+        fetch(window.API_BASE_URL + "/api/incidents", { headers }),
+        fetch(window.API_BASE_URL + "/api/incidents/resolved", { headers })
       ]);
 
       if (resUsers.ok && resActive.ok && resResolved.ok) {
@@ -349,7 +349,7 @@ function EmployeeManagement() {
                         <td>
                           {emp.profileImage ? (
                             <img
-                              src={`http://localhost:8080${emp.profileImage}`}
+                              src={`${window.API_BASE_URL}${emp.profileImage}`}
                               alt="Avatar"
                               className="rounded-circle border"
                               style={{ width: "32px", height: "32px", objectFit: "cover" }}

@@ -151,7 +151,7 @@ function IncidentDetails() {
       
       let currentIncidentData = null;
 
-      const res = await fetch(`http://localhost:8080/api/incidents/${id}`, { headers });
+      const res = await fetch(`${window.API_BASE_URL}/api/incidents/${id}`, { headers });
       if (res.ok) {
         const data = await res.json();
         setIncident(data);
@@ -165,7 +165,7 @@ function IncidentDetails() {
         }
       } else {
         // Incident might have been resolved (and deleted from active). Check resolved table.
-        const resRes = await fetch("http://localhost:8080/api/incidents/resolved", { headers });
+        const resRes = await fetch(window.API_BASE_URL + "/api/incidents/resolved", { headers });
         if (resRes.ok) {
           const resolvedList = await resRes.json();
           const found = resolvedList.find(r => String(r.incidentId) === String(id));
@@ -206,7 +206,7 @@ function IncidentDetails() {
       // Fetch reporter user details
       if (currentIncidentData && currentIncidentData.reportedBy) {
         try {
-          const resUser = await fetch(`http://localhost:8080/api/users/username/${currentIncidentData.reportedBy}`, { headers });
+          const resUser = await fetch(`${window.API_BASE_URL}/api/users/username/${currentIncidentData.reportedBy}`, { headers });
           if (resUser.ok) {
             const userData = await resUser.json();
             setReporterUser(userData);
@@ -219,7 +219,7 @@ function IncidentDetails() {
       // Fetch assigned analyst user details
       if (currentIncidentData && currentIncidentData.assignedTo) {
         try {
-          const resUser = await fetch(`http://localhost:8080/api/users/username/${currentIncidentData.assignedTo}`, { headers });
+          const resUser = await fetch(`${window.API_BASE_URL}/api/users/username/${currentIncidentData.assignedTo}`, { headers });
           if (resUser.ok) {
             const userData = await resUser.json();
             setAssignedUser(userData);
@@ -231,7 +231,7 @@ function IncidentDetails() {
 
       // Fetch Incident Audit logs for timeline
       try {
-        const resAudit = await fetch(`http://localhost:8080/api/audit/incident/${id}`, { headers });
+        const resAudit = await fetch(`${window.API_BASE_URL}/api/audit/incident/${id}`, { headers });
         if (resAudit.ok) {
           const audits = await resAudit.json();
           setTimelineEvents(audits || []);
@@ -241,14 +241,14 @@ function IncidentDetails() {
       }
 
       // Fetch Attachments
-      const resAtt = await fetch(`http://localhost:8080/api/incidents/${id}/attachments`, { headers });
+      const resAtt = await fetch(`${window.API_BASE_URL}/api/incidents/${id}/attachments`, { headers });
       if (resAtt.ok) {
         const atts = await resAtt.json();
         setAttachments(atts || []);
       }
 
       // Fetch Escalation History
-      const resEsc = await fetch(`http://localhost:8080/api/incidents/${id}/escalations`, { headers });
+      const resEsc = await fetch(`${window.API_BASE_URL}/api/incidents/${id}/escalations`, { headers });
       if (resEsc.ok) {
         const escs = await resEsc.json();
         setEscalations(escs || []);
@@ -256,7 +256,7 @@ function IncidentDetails() {
 
       // Fetch Assignment History
       try {
-        const resAssign = await fetch(`http://localhost:8080/api/incidents/${id}/assignments`, { headers });
+        const resAssign = await fetch(`${window.API_BASE_URL}/api/incidents/${id}/assignments`, { headers });
         if (resAssign.ok) {
           const assigns = await resAssign.json();
           setAssignments(assigns || []);
@@ -266,7 +266,7 @@ function IncidentDetails() {
       }
 
       try {
-        const resUsers = await fetch("http://localhost:8080/api/users", { headers });
+        const resUsers = await fetch(window.API_BASE_URL + "/api/users", { headers });
         if (resUsers.ok) {
           const usersData = await resUsers.json();
           setUsersList(usersData || []);
@@ -285,12 +285,12 @@ function IncidentDetails() {
   const fetchAllIncidents = async () => {
     try {
       const headers = { "Authorization": `Bearer ${localStorage.getItem("token")}` };
-      const resActive = await fetch("http://localhost:8080/api/incidents", { headers });
+      const resActive = await fetch(window.API_BASE_URL + "/api/incidents", { headers });
       let active = [];
       if (resActive.ok) {
         active = await resActive.json();
       }
-      const resResolved = await fetch("http://localhost:8080/api/incidents/resolved", { headers });
+      const resResolved = await fetch(window.API_BASE_URL + "/api/incidents/resolved", { headers });
       let resolved = [];
       if (resResolved.ok) {
         resolved = await resResolved.json();
@@ -326,7 +326,7 @@ function IncidentDetails() {
         try {
           setLoadingClosureValidation(true);
           const headers = { "Authorization": `Bearer ${localStorage.getItem("token")}` };
-          const res = await fetch(`http://localhost:8080/api/incidents/${incident.id}/validate-closure`, { headers });
+          const res = await fetch(`${window.API_BASE_URL}/api/incidents/${incident.id}/validate-closure`, { headers });
           if (res.ok) {
             const data = await res.json();
             setClosureValidation(data);
@@ -380,7 +380,7 @@ function IncidentDetails() {
         "Authorization": `Bearer ${localStorage.getItem("token")}`,
         "Content-Type": "application/json"
       };
-      const res = await fetch(`http://localhost:8080/api/incidents/${id}/checklist`, {
+      const res = await fetch(`${window.API_BASE_URL}/api/incidents/${id}/checklist`, {
         method: "PUT",
         headers,
         body: JSON.stringify({
@@ -401,7 +401,7 @@ function IncidentDetails() {
         "Authorization": `Bearer ${localStorage.getItem("token")}`,
         "Content-Type": "application/json"
       };
-      const res = await fetch(`http://localhost:8080/api/incidents/${id}/ai-recommendation`, {
+      const res = await fetch(`${window.API_BASE_URL}/api/incidents/${id}/ai-recommendation`, {
         method: "PUT",
         headers,
         body: JSON.stringify({
@@ -431,7 +431,7 @@ function IncidentDetails() {
         "Authorization": `Bearer ${localStorage.getItem("token")}`,
         "Content-Type": "application/json"
       };
-      const res = await fetch(`http://localhost:8080/api/incidents/${id}/ai-recommendation`, {
+      const res = await fetch(`${window.API_BASE_URL}/api/incidents/${id}/ai-recommendation`, {
         method: "PUT",
         headers,
         body: JSON.stringify({
@@ -440,7 +440,7 @@ function IncidentDetails() {
         })
       });
       if (res.ok) {
-        await fetch(`http://localhost:8080/api/incidents/${id}/status`, {
+        await fetch(`${window.API_BASE_URL}/api/incidents/${id}/status`, {
           method: "PUT",
           headers,
           body: JSON.stringify({
@@ -601,7 +601,7 @@ function IncidentDetails() {
   const handleDownloadAttachment = async (attId, filename) => {
     try {
       const headers = { "Authorization": `Bearer ${localStorage.getItem("token")}` };
-      const res = await fetch(`http://localhost:8080/api/incidents/attachments/${attId}`, { headers });
+      const res = await fetch(`${window.API_BASE_URL}/api/incidents/attachments/${attId}`, { headers });
       if (res.ok) {
         const blob = await res.blob();
         const url = window.URL.createObjectURL(blob);
@@ -627,7 +627,7 @@ function IncidentDetails() {
   const handlePreviewAttachment = async (attId) => {
     try {
       const headers = { "Authorization": `Bearer ${localStorage.getItem("token")}` };
-      const res = await fetch(`http://localhost:8080/api/incidents/attachments/${attId}`, { headers });
+      const res = await fetch(`${window.API_BASE_URL}/api/incidents/attachments/${attId}`, { headers });
       if (res.ok) {
         const blob = await res.blob();
         const url = window.URL.createObjectURL(blob);
@@ -648,7 +648,7 @@ function IncidentDetails() {
   // Save notes handler
   const handleSaveNotes = async () => {
     try {
-      const res = await fetch(`http://localhost:8080/api/incidents/${id}/notes`, {
+      const res = await fetch(`${window.API_BASE_URL}/api/incidents/${id}/notes`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -668,7 +668,7 @@ function IncidentDetails() {
   // Save administrative remarks handler
   const handleSaveRemarks = async () => {
     try {
-      const res = await fetch(`http://localhost:8080/api/incidents/${id}/remarks`, {
+      const res = await fetch(`${window.API_BASE_URL}/api/incidents/${id}/remarks`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -691,7 +691,7 @@ function IncidentDetails() {
   // Update Status handler
   const handleUpdateStatus = async (newStatus) => {
     try {
-      const res = await fetch(`http://localhost:8080/api/incidents/${id}/status`, {
+      const res = await fetch(`${window.API_BASE_URL}/api/incidents/${id}/status`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -717,7 +717,7 @@ function IncidentDetails() {
     }
     try {
       // 1. Save resolution summary
-      await fetch(`http://localhost:8080/api/incidents/${id}/resolution`, {
+      await fetch(`${window.API_BASE_URL}/api/incidents/${id}/resolution`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -727,7 +727,7 @@ function IncidentDetails() {
       });
 
       // 2. Submit for approval
-      const res = await fetch(`http://localhost:8080/api/incidents/${id}/submit-for-approval`, {
+      const res = await fetch(`${window.API_BASE_URL}/api/incidents/${id}/submit-for-approval`, {
         method: "PUT",
         headers: { "Authorization": `Bearer ${localStorage.getItem("token")}` }
       });
@@ -744,7 +744,7 @@ function IncidentDetails() {
   // Manual Escalate L2
   const handleManualEscalate = async () => {
     try {
-      const res = await fetch(`http://localhost:8080/api/incidents/${id}/escalate`, {
+      const res = await fetch(`${window.API_BASE_URL}/api/incidents/${id}/escalate`, {
         method: "PUT",
         headers: { "Authorization": `Bearer ${localStorage.getItem("token")}` }
       });
@@ -762,7 +762,7 @@ function IncidentDetails() {
   // Approve Resolution (Admin Submit)
   const submitApprove = async () => {
     try {
-      const res = await fetch(`http://localhost:8080/api/incidents/${id}/approve`, {
+      const res = await fetch(`${window.API_BASE_URL}/api/incidents/${id}/approve`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -788,7 +788,7 @@ function IncidentDetails() {
       return;
     }
     try {
-      const res = await fetch(`http://localhost:8080/api/incidents/${id}/reject`, {
+      const res = await fetch(`${window.API_BASE_URL}/api/incidents/${id}/reject`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -822,7 +822,7 @@ function IncidentDetails() {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${localStorage.getItem("token")}`
       };
-      const url = `http://localhost:8080/api/incidents/${id}/ai-analysis${hasAi ? "?regenerate=true" : ""}`;
+      const url = `${window.API_BASE_URL}/api/incidents/${id}/ai-analysis${hasAi ? "?regenerate=true" : ""}`;
       const res = await fetch(url, {
         method: "POST",
         headers
@@ -860,7 +860,7 @@ function IncidentDetails() {
 
     setUploading(true);
     try {
-      const res = await fetch(`http://localhost:8080/api/incidents/${id}/attachments`, {
+      const res = await fetch(`${window.API_BASE_URL}/api/incidents/${id}/attachments`, {
         method: "POST",
         headers: { "Authorization": `Bearer ${localStorage.getItem("token")}` },
         body: formData
@@ -2052,7 +2052,7 @@ function IncidentDetails() {
                   <div className="d-flex align-items-center gap-3 mb-3 border-bottom pb-3">
                     {reporterUser.profileImage ? (
                       <img
-                        src={`http://localhost:8080${reporterUser.profileImage}`}
+                        src={`${window.API_BASE_URL}${reporterUser.profileImage}`}
                         alt="Profile"
                         className="rounded-circle border"
                         style={{ width: "50px", height: "50px", objectFit: "cover" }}
@@ -2144,7 +2144,7 @@ function IncidentDetails() {
                     <div className="d-flex align-items-center gap-2 mt-1">
                       {assignedUser && assignedUser.profileImage ? (
                         <img
-                          src={`http://localhost:8080${assignedUser.profileImage}`}
+                          src={`${window.API_BASE_URL}${assignedUser.profileImage}`}
                           alt="Analyst"
                           className="rounded-circle border"
                           style={{ width: "28px", height: "28px", objectFit: "cover" }}

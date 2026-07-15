@@ -19,7 +19,7 @@ export const NotificationProvider = ({ children }) => {
     if (!username) return;
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`http://localhost:8080/api/notifications/${username}`, {
+      const res = await fetch(`${window.API_BASE_URL}/api/notifications/${username}`, {
         headers: { "Authorization": `Bearer ${token}` }
       });
       if (res.ok) {
@@ -38,7 +38,7 @@ export const NotificationProvider = ({ children }) => {
 
     // ================= SOCKET =================
     const client = new Client({
-      webSocketFactory: () => new SockJS("http://localhost:8080/ws"),
+      webSocketFactory: () => new SockJS(window.API_BASE_URL + "/ws"),
       reconnectDelay: 5000,
       onConnect: () => {
         console.log("SOCKET CONNECTED");
@@ -67,7 +67,7 @@ export const NotificationProvider = ({ children }) => {
     if (!username) return;
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`http://localhost:8080/api/notifications/read/${username}`, {
+      const res = await fetch(`${window.API_BASE_URL}/api/notifications/read/${username}`, {
         method: "PUT",
         headers: { "Authorization": `Bearer ${token}` }
       });
@@ -82,7 +82,7 @@ export const NotificationProvider = ({ children }) => {
   const markAsRead = async (id) => {
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`http://localhost:8080/api/notifications/${id}/read`, {
+      const res = await fetch(`${window.API_BASE_URL}/api/notifications/${id}/read`, {
         method: "PUT",
         headers: { "Authorization": `Bearer ${token}` }
       });

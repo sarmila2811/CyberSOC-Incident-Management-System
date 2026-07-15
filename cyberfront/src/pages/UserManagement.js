@@ -56,7 +56,7 @@ function UserManagement() {
   const fetchUsers = async () => {
     try {
       setLoading(true);
-      const res = await fetch("http://localhost:8080/api/users", {
+      const res = await fetch(window.API_BASE_URL + "/api/users", {
         headers: { "Authorization": `Bearer ${localStorage.getItem("token")}` }
       });
       if (res.ok) {
@@ -129,13 +129,13 @@ function UserManagement() {
       const bodyForm = { ...form, specialization: finalSpec };
 
       if (modalMode === "create") {
-        res = await fetch("http://localhost:8080/api/users", {
+        res = await fetch(window.API_BASE_URL + "/api/users", {
           method: "POST",
           headers,
           body: JSON.stringify(bodyForm)
         });
       } else {
-        res = await fetch(`http://localhost:8080/api/users/${selectedUser.id}`, {
+        res = await fetch(`${window.API_BASE_URL}/api/users/${selectedUser.id}`, {
           method: "PUT",
           headers,
           body: JSON.stringify(bodyForm)
@@ -163,7 +163,7 @@ function UserManagement() {
   const handleToggleStatus = async (id, currentStatus) => {
     const newStatus = currentStatus === "ACTIVE" ? "INACTIVE" : "ACTIVE";
     try {
-      const res = await fetch(`http://localhost:8080/api/users/${id}/status`, {
+      const res = await fetch(`${window.API_BASE_URL}/api/users/${id}/status`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -183,7 +183,7 @@ function UserManagement() {
     const pw = window.prompt("Enter new password for this user:");
     if (!pw) return;
     try {
-      const res = await fetch(`http://localhost:8080/api/users/${id}/reset-password`, {
+      const res = await fetch(`${window.API_BASE_URL}/api/users/${id}/reset-password`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -202,7 +202,7 @@ function UserManagement() {
   const handleDeleteUser = async (id) => {
     if (!window.confirm("Are you sure you want to permanently delete this user?")) return;
     try {
-      const res = await fetch(`http://localhost:8080/api/users/${id}`, {
+      const res = await fetch(`${window.API_BASE_URL}/api/users/${id}`, {
         method: "DELETE",
         headers: { "Authorization": `Bearer ${localStorage.getItem("token")}` }
       });
@@ -419,7 +419,7 @@ function UserManagement() {
                           <div className="d-flex align-items-center gap-2">
                             {u.profileImage ? (
                               <img
-                                src={`http://localhost:8080${u.profileImage}`}
+                                src={`${window.API_BASE_URL}${u.profileImage}`}
                                 alt="Avatar"
                                 className="rounded-circle border"
                                 style={{ width: "32px", height: "32px", objectFit: "cover" }}

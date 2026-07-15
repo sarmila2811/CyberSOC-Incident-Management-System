@@ -15,7 +15,7 @@ function Alerts() {
   const fetchAlerts = async () => {
     try {
       setLoading(true);
-      const res = await fetch("http://localhost:8080/api/incidents", {
+      const res = await fetch(window.API_BASE_URL + "/api/incidents", {
         headers: { "Authorization": `Bearer ${localStorage.getItem("token")}` }
       });
       if (res.ok) {

@@ -98,8 +98,8 @@ function ResolvedIncidents() {
       setLoading(true);
       const headers = { "Authorization": `Bearer ${localStorage.getItem("token")}` };
       const [res, resUsers] = await Promise.all([
-        fetch("http://localhost:8080/api/incidents/resolved", { headers }),
-        fetch("http://localhost:8080/api/users", { headers })
+        fetch(window.API_BASE_URL + "/api/incidents/resolved", { headers }),
+        fetch(window.API_BASE_URL + "/api/users", { headers })
       ]);
       if (res.ok) {
         const data = await res.json();

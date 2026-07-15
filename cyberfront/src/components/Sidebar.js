@@ -28,7 +28,7 @@ function Sidebar() {
           <div className="mb-2">
             {user.profileImage ? (
               <img
-                src={`http://localhost:8080${user.profileImage}`}
+                src={`${window.API_BASE_URL}${user.profileImage}`}
                 alt="Profile"
                 className="rounded-circle border border-2 border-light"
                 style={{ width: "60px", height: "60px", objectFit: "cover" }}

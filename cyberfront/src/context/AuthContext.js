@@ -29,7 +29,7 @@ export function AuthProvider({ children }) {
     try {
       const token = localStorage.getItem("token");
       if (!token) return;
-      const res = await fetch(`http://localhost:8080/api/users/username/${user.username}`, {
+      const res = await fetch(`${window.API_BASE_URL}/api/users/username/${user.username}`, {
         headers: { "Authorization": `Bearer ${token}` }
       });
       if (res.ok) {

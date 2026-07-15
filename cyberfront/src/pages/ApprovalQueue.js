@@ -20,7 +20,7 @@ function ApprovalQueue() {
     try {
       setLoading(true);
       const headers = { "Authorization": `Bearer ${localStorage.getItem("token")}` };
-      const res = await fetch("http://localhost:8080/api/incidents/pending-approval", { headers });
+      const res = await fetch(window.API_BASE_URL + "/api/incidents/pending-approval", { headers });
       if (res.ok) {
         const data = await res.json();
         const pending = (data || []).filter(i => {
@@ -31,7 +31,7 @@ function ApprovalQueue() {
       }
 
       // Fetch users roster to display Analyst Level
-      const resUsers = await fetch("http://localhost:8080/api/users", { headers });
+      const resUsers = await fetch(window.API_BASE_URL + "/api/users", { headers });
       if (resUsers.ok) {
         const dataUsers = await resUsers.json();
         setUsersList(dataUsers);
@@ -50,7 +50,7 @@ function ApprovalQueue() {
   const handleApprove = async (id) => {
     if (!window.confirm("Approve and close this incident?")) return;
     try {
-      const res = await fetch(`http://localhost:8080/api/incidents/${id}/approve`, {
+      const res = await fetch(`${window.API_BASE_URL}/api/incidents/${id}/approve`, {
         method: "PUT",
         headers: { "Authorization": `Bearer ${localStorage.getItem("token")}` }
       });
@@ -72,7 +72,7 @@ function ApprovalQueue() {
       return;
     }
     try {
-      const res = await fetch(`http://localhost:8080/api/incidents/${id}/reject`, {
+      const res = await fetch(`${window.API_BASE_URL}/api/incidents/${id}/reject`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",

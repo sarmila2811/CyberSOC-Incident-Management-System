@@ -39,7 +39,7 @@ export default function ChangePassword() {
 
     setLoading(true);
     try {
-      const res = await fetch("http://localhost:8080/api/users/change-password", {
+      const res = await fetch(window.API_BASE_URL + "/api/users/change-password", {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",

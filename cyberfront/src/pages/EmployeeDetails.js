@@ -22,11 +22,11 @@ function EmployeeDetails() {
       const headers = { "Authorization": `Bearer ${localStorage.getItem("token")}` };
 
       const [resUser, resActive, resResolved, resAudit, resUsersAll] = await Promise.all([
-        fetch(`http://localhost:8080/api/users/${id}`, { headers }),
-        fetch("http://localhost:8080/api/incidents", { headers }),
-        fetch("http://localhost:8080/api/incidents/resolved", { headers }),
-        fetch("http://localhost:8080/api/audit", { headers }),
-        fetch("http://localhost:8080/api/users", { headers })
+        fetch(`${window.API_BASE_URL}/api/users/${id}`, { headers }),
+        fetch(window.API_BASE_URL + "/api/incidents", { headers }),
+        fetch(window.API_BASE_URL + "/api/incidents/resolved", { headers }),
+        fetch(window.API_BASE_URL + "/api/audit", { headers }),
+        fetch(window.API_BASE_URL + "/api/users", { headers })
       ]);
 
       if (resUser.ok && resActive.ok && resResolved.ok && resAudit.ok && resUsersAll.ok) {
@@ -168,7 +168,7 @@ function EmployeeDetails() {
                 <div className="mb-3 position-relative d-inline-block">
                   {employee.profileImage ? (
                     <img
-                      src={`http://localhost:8080${employee.profileImage}`}
+                      src={`${window.API_BASE_URL}${employee.profileImage}`}
                       alt={employee.fullName}
                       className="rounded-circle border border-primary p-1 shadow-sm"
                       style={{ width: "120px", height: "120px", objectFit: "cover" }}

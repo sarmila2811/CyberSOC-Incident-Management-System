@@ -38,7 +38,7 @@ function AuditLogs() {
   const fetchLogs = async () => {
     try {
       setLoading(true);
-      const res = await fetch("http://localhost:8080/api/audit", {
+      const res = await fetch(window.API_BASE_URL + "/api/audit", {
         headers: { "Authorization": `Bearer ${localStorage.getItem("token")}` }
       });
       if (res.ok) {

@@ -111,7 +111,7 @@ function Signup() {
     setLoading(true);
     try {
       // Send OTP to email first
-      const res = await fetch(`http://localhost:8080/api/auth/send-otp?email=${form.email}`, {
+      const res = await fetch(`${window.API_BASE_URL}/api/auth/send-otp?email=${form.email}`, {
         method: "POST"
       });
       const data = await res.json();
@@ -135,7 +135,7 @@ function Signup() {
     setOtpError("");
     setOtpLoading(true);
     try {
-      const res = await fetch(`http://localhost:8080/api/auth/send-otp?email=${form.email}`, {
+      const res = await fetch(`${window.API_BASE_URL}/api/auth/send-otp?email=${form.email}`, {
         method: "POST"
       });
       if (res.ok) {
@@ -164,7 +164,7 @@ function Signup() {
     setOtpLoading(true);
     try {
       // 1. Verify OTP
-      const resVerify = await fetch(`http://localhost:8080/api/auth/verify-otp?email=${form.email}&otp=${otpCode}`, {
+      const resVerify = await fetch(`${window.API_BASE_URL}/api/auth/verify-otp?email=${form.email}&otp=${otpCode}`, {
         method: "POST"
       });
       const verifyData = await resVerify.json();
@@ -179,7 +179,7 @@ function Signup() {
       const finalDept = form.department === "Others" ? customDept : form.department;
       const finalSpec = form.role === "ANALYST" && form.specialization === "Others" ? customSpec : form.specialization;
 
-      const resSignup = await fetch("http://localhost:8080/api/users/signup", {
+      const resSignup = await fetch(window.API_BASE_URL + "/api/users/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

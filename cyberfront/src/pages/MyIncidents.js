@@ -42,16 +42,16 @@ function MyIncidents() {
       setLoading(true);
       const headers = { "Authorization": `Bearer ${localStorage.getItem("token")}` };
 
-      let incidentsUrl = "http://localhost:8080/api/incidents";
+      let incidentsUrl = window.API_BASE_URL + "/api/incidents";
       if (role === "ANALYST") {
-        incidentsUrl = `http://localhost:8080/api/incidents/my-incidents/${username}`;
+        incidentsUrl = `${window.API_BASE_URL}/api/incidents/my-incidents/${username}`;
       } else if (role === "EMPLOYEE") {
-        incidentsUrl = `http://localhost:8080/api/incidents/user/${username}`;
+        incidentsUrl = `${window.API_BASE_URL}/api/incidents/user/${username}`;
       }
 
       const [resInc, resUsers] = await Promise.all([
         fetch(incidentsUrl, { headers }),
-        fetch("http://localhost:8080/api/users", { headers })
+        fetch(window.API_BASE_URL + "/api/users", { headers })
       ]);
 
       let activeData = [];
@@ -100,7 +100,7 @@ function MyIncidents() {
   const handleEscalate = async (id) => {
     if (!window.confirm("Escalate incident " + formatIncidentId(id) + " to L2?")) return;
     try {
-      const res = await fetch(`http://localhost:8080/api/incidents/${id}/escalate`, {
+      const res = await fetch(`${window.API_BASE_URL}/api/incidents/${id}/escalate`, {
         method: "PUT",
         headers: { "Authorization": `Bearer ${localStorage.getItem("token")}` }
       });

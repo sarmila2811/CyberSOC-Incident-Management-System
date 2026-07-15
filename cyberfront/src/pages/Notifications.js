@@ -25,7 +25,7 @@ function Notifications() {
   const handleDelete = async (id) => {
     if (!window.confirm("Delete this notification?")) return;
     try {
-      const res = await fetch(`http://localhost:8080/api/notifications/${id}`, {
+      const res = await fetch(`${window.API_BASE_URL}/api/notifications/${id}`, {
         method: "DELETE",
         headers: { "Authorization": `Bearer ${localStorage.getItem("token")}` }
       });

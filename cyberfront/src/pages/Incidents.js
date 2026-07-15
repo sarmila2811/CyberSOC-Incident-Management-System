@@ -60,7 +60,7 @@ function Incidents() {
         try {
           setLoadingAiRec(true);
           const headers = { "Authorization": `Bearer ${localStorage.getItem("token")}` };
-          const res = await fetch(`http://localhost:8080/api/incidents/${assignModalIncident.id}/recommend-analyst`, { headers });
+          const res = await fetch(`${window.API_BASE_URL}/api/incidents/${assignModalIncident.id}/recommend-analyst`, { headers });
           if (res.ok) {
             const data = await res.json();
             setAiRec(data);
@@ -185,18 +185,18 @@ function Incidents() {
       const headers = { "Authorization": `Bearer ${localStorage.getItem("token")}` };
       
       const filterParam = searchParams.get("filter");
-      let incidentsUrl = "http://localhost:8080/api/incidents";
+      let incidentsUrl = window.API_BASE_URL + "/api/incidents";
       if (filterParam === "active") {
-        incidentsUrl = "http://localhost:8080/api/incidents/active";
+        incidentsUrl = window.API_BASE_URL + "/api/incidents/active";
       } else if (role === "ANALYST" && username) {
-        incidentsUrl = `http://localhost:8080/api/incidents/my-incidents/${username}`;
+        incidentsUrl = `${window.API_BASE_URL}/api/incidents/my-incidents/${username}`;
       } else if (role === "EMPLOYEE" && username) {
-        incidentsUrl = `http://localhost:8080/api/incidents/user/${username}`;
+        incidentsUrl = `${window.API_BASE_URL}/api/incidents/user/${username}`;
       }
 
       const [resActive, resUsers] = await Promise.all([
         fetch(incidentsUrl, { headers }),
-        fetch("http://localhost:8080/api/users", { headers })
+        fetch(window.API_BASE_URL + "/api/users", { headers })
       ]);
 
       let activeData = [];
@@ -239,7 +239,7 @@ function Incidents() {
   const handleDeleteIncident = async (id) => {
     if (!window.confirm("Are you sure you want to delete incident " + formatIncidentId(id) + "?")) return;
     try {
-      const res = await fetch(`http://localhost:8080/api/incidents/${id}`, {
+      const res = await fetch(`${window.API_BASE_URL}/api/incidents/${id}`, {
         method: "DELETE",
         headers: { "Authorization": `Bearer ${localStorage.getItem("token")}` }
       });
@@ -255,7 +255,7 @@ function Incidents() {
   const handleEscalateIncident = async (id) => {
     if (!window.confirm("Do you want to escalate incident " + formatIncidentId(id) + " to L2?")) return;
     try {
-      const res = await fetch(`http://localhost:8080/api/incidents/${id}/escalate`, {
+      const res = await fetch(`${window.API_BASE_URL}/api/incidents/${id}/escalate`, {
         method: "PUT",
         headers: { "Authorization": `Bearer ${localStorage.getItem("token")}` }
       });
@@ -275,7 +275,7 @@ function Incidents() {
         assignedTo: targetUsername,
         assignedAnalystName: selected ? selected.fullName : ""
       };
-      const res = await fetch(`http://localhost:8080/api/incidents/${incidentId}/assign`, {
+      const res = await fetch(`${window.API_BASE_URL}/api/incidents/${incidentId}/assign`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -886,7 +886,7 @@ function Incidents() {
                                  <div className="d-flex align-items-center gap-3">
                                    {analyst.profileImage ? (
                                      <img
-                                       src={`http://localhost:8080${analyst.profileImage}`}
+                                       src={`${window.API_BASE_URL}${analyst.profileImage}`}
                                        alt="Analyst Avatar"
                                        className="rounded-circle border"
                                        style={{ width: "40px", height: "40px", objectFit: "cover" }}

@@ -70,7 +70,7 @@ function Dashboard() {
     try {
       setLoading(true);
       
-      let statsUrl = "http://localhost:8080/api/reports/statistics";
+      let statsUrl = window.API_BASE_URL + "/api/reports/statistics";
       const params = [];
       if (filterType !== "All") {
         if (filterType === "Custom" && start && end) {
@@ -100,7 +100,7 @@ function Dashboard() {
       }
 
       // Fetch User Roster to lookup Analyst Level
-      const resUsersList = await fetch("http://localhost:8080/api/users", { headers });
+      const resUsersList = await fetch(window.API_BASE_URL + "/api/users", { headers });
       let usersList = [];
       if (resUsersList.ok) {
         usersList = await resUsersList.json();
@@ -108,7 +108,7 @@ function Dashboard() {
       }
 
       // Fetch Recent Incidents
-      const resInc = await fetch("http://localhost:8080/api/incidents", { headers });
+      const resInc = await fetch(window.API_BASE_URL + "/api/incidents", { headers });
       let incData = [];
       if (resInc.ok) {
         incData = await resInc.json();
@@ -121,7 +121,7 @@ function Dashboard() {
       }
 
       // Fetch Audit Logs for Recent Activity
-      const resAudit = await fetch("http://localhost:8080/api/audit", { headers });
+      const resAudit = await fetch(window.API_BASE_URL + "/api/audit", { headers });
       if (resAudit.ok) {
         let auditData = await resAudit.json();
         if (role === "EMPLOYEE") {
@@ -134,7 +134,7 @@ function Dashboard() {
 
       // Fetch Recent Notifications
       if (currentUser.username) {
-        const resNotif = await fetch(`http://localhost:8080/api/notifications/${currentUser.username}`, { headers });
+        const resNotif = await fetch(`${window.API_BASE_URL}/api/notifications/${currentUser.username}`, { headers });
         if (resNotif.ok) {
           const notifData = await resNotif.json();
           setNotifications(notifData.slice(0, 5));
@@ -150,7 +150,7 @@ function Dashboard() {
         const inactiveList = usersList.filter(u => u.status && u.status.toLowerCase() === "inactive");
 
         // Fetch resolved to compute Average Resolution Time
-        const resRes = await fetch("http://localhost:8080/api/incidents/resolved", { headers });
+        const resRes = await fetch(window.API_BASE_URL + "/api/incidents/resolved", { headers });
         let avgResTime = "N/A";
         if (resRes.ok) {
           const resolvedList = await resRes.json();
@@ -222,7 +222,7 @@ function Dashboard() {
     } else if (act.action === "PROFILE_IMAGE_UPLOADED" || act.remarks.toLowerCase().includes("profile image")) {
       try {
         const headers = { "Authorization": `Bearer ${localStorage.getItem("token")}` };
-        const res = await fetch(`http://localhost:8080/api/users/username/${act.user}`, { headers });
+        const res = await fetch(`${window.API_BASE_URL}/api/users/username/${act.user}`, { headers });
         if (res.ok) {
           const userData = await res.json();
           if (userData && userData.role && userData.role.toUpperCase() === "EMPLOYEE") {
@@ -289,7 +289,7 @@ function Dashboard() {
             <div className="d-flex align-items-center gap-3">
               {currentUser.profileImage ? (
                 <img
-                  src={`http://localhost:8080${currentUser.profileImage}`}
+                  src={`${window.API_BASE_URL}${currentUser.profileImage}`}
                   alt="Profile"
                   className="rounded-circle border border-2 border-primary"
                   style={{ width: "52px", height: "52px", objectFit: "cover" }}

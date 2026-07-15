@@ -15,8 +15,8 @@ function AnalystPerformance() {
       setLoading(true);
       const headers = { "Authorization": `Bearer ${localStorage.getItem("token")}` };
       const [resStats, resUsers] = await Promise.all([
-        fetch("http://localhost:8080/api/reports/statistics", { headers }),
-        fetch("http://localhost:8080/api/users", { headers })
+        fetch(window.API_BASE_URL + "/api/reports/statistics", { headers }),
+        fetch(window.API_BASE_URL + "/api/users", { headers })
       ]);
 
       if (resStats.ok && resUsers.ok) {
@@ -44,7 +44,7 @@ function AnalystPerformance() {
   const handleExportCSV = async () => {
     try {
       const headers = { "Authorization": `Bearer ${localStorage.getItem("token")}` };
-      const resRes = await fetch("http://localhost:8080/api/incidents/resolved", { headers });
+      const resRes = await fetch(window.API_BASE_URL + "/api/incidents/resolved", { headers });
       let resolvedIncidents = [];
       if (resRes.ok) {
         resolvedIncidents = await resRes.json();
@@ -201,7 +201,7 @@ function AnalystPerformance() {
                           <td>
                             {a.profileImage ? (
                               <img
-                                src={`http://localhost:8080${a.profileImage}`}
+                                src={`${window.API_BASE_URL}${a.profileImage}`}
                                 alt="Avatar"
                                 className="rounded-circle border"
                                 style={{ width: "32px", height: "32px", objectFit: "cover" }}

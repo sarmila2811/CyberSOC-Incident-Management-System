@@ -6,7 +6,7 @@ function AlertPanel() {
   const norm = (v) => (v || "").toLowerCase().trim();
 
   useEffect(() => {
-    fetch("http://localhost:8080/api/incidents")
+    fetch(window.API_BASE_URL + "/api/incidents")
       .then((res) => res.json())
       .then((data) => {
         const filtered = data.filter(

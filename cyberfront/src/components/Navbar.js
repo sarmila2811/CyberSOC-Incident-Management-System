@@ -16,7 +16,7 @@ function Navbar() {
     navigate("/login");
   };
 
-  const imageUrl = user?.profileImage ? `http://localhost:8080${user.profileImage}` : null;
+  const imageUrl = user?.profileImage ? `${window.API_BASE_URL}${user.profileImage}` : null;
 
   return (
     <div className="soc-navbar">

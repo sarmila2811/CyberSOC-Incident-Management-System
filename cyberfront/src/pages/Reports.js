@@ -33,9 +33,9 @@ function Reports() {
       const headers = { "Authorization": `Bearer ${localStorage.getItem("token")}` };
       
       const [resStats, resHist, resResolved] = await Promise.all([
-        fetch("http://localhost:8080/api/reports/statistics", { headers }),
-        fetch("http://localhost:8080/api/reports/history", { headers }),
-        fetch("http://localhost:8080/api/incidents/resolved", { headers })
+        fetch(window.API_BASE_URL + "/api/reports/statistics", { headers }),
+        fetch(window.API_BASE_URL + "/api/reports/history", { headers }),
+        fetch(window.API_BASE_URL + "/api/incidents/resolved", { headers })
       ]);
 
       if (resStats.ok) {
@@ -83,7 +83,7 @@ function Reports() {
   // Post dynamic log
   const logReportDownload = async (reportName, format) => {
     try {
-      await fetch("http://localhost:8080/api/reports/log", {
+      await fetch(window.API_BASE_URL + "/api/reports/log", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
