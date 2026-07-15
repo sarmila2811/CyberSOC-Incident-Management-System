@@ -1,0 +1,22 @@
+[ {
+  "id" : 101,
+  "title" : "attack",
+  "priority" : "Medium",
+  "status" : "Under Investigation",
+  "analystNotes" : "",
+  "assignedTo" : "analyst2"
+}, {
+  "id" : 102,
+  "title" : "phishing",
+  "priority" : "Critical",
+  "status" : "Under Investigation",
+  "analystNotes" : "Investigated phishing email reported by user.\nSuspicious sender identified.\nMalicious link blocked.\nUser account secured.\nIncident under monitoring.",
+  "assignedTo" : "analyst1"
+}, {
+  "id" : 103,
+  "title" : "vishing",
+  "priority" : "High",
+  "status" : "Open",
+  "analystNotes" : "Investigation in progress.",
+  "assignedTo" : "analyst1"
+} ]

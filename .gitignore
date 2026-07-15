@@ -1,0 +1,11 @@
+# Ignore everything by default
+*
+
+# Except these directories and their contents recursively
+!/cyberback/
+!/cyberback/**
+!/cyberfront/
+!/cyberfront/**
+
+# Except this .gitignore file
+!/.gitignore

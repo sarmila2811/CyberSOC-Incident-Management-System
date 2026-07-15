@@ -1,0 +1,831 @@
+import React, { useEffect, useState } from "react";
+import Navbar from "../components/Navbar";
+import Sidebar from "../components/Sidebar";
+import { Link } from "react-router-dom";
+import { FaFilePdf, FaFileCsv, FaFileExcel, FaCalendarAlt } from "react-icons/fa";
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, PieChart, Pie, Cell } from "recharts";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+import { 
+  formatSpecialization,
+  extractIoCs,
+  getMitreMapping 
+} from "../utils/format";
+
+function Reports() {
+  const [stats, setStats] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [history, setHistory] = useState([]);
+  const [avgResolutionTime, setAvgResolutionTime] = useState("N/A");
+  const [resolvedIncidents, setResolvedIncidents] = useState([]);
+  
+  // Date Filters
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [reportType, setReportType] = useState("Custom"); // Daily, Weekly, Monthly, Custom
+
+  const currentUser = JSON.parse(localStorage.getItem("currentUser") || "{}");
+  const username = currentUser?.username;
+
+  const fetchReportData = async () => {
+    try {
+      setLoading(true);
+      const headers = { "Authorization": `Bearer ${localStorage.getItem("token")}` };
+      
+      const [resStats, resHist, resResolved] = await Promise.all([
+        fetch("http://localhost:8080/api/reports/statistics", { headers }),
+        fetch("http://localhost:8080/api/reports/history", { headers }),
+        fetch("http://localhost:8080/api/incidents/resolved", { headers })
+      ]);
+
+      if (resStats.ok) {
+        const statsData = await resStats.json();
+        setStats(statsData);
+      }
+
+      if (resHist.ok) {
+        const histData = await resHist.json();
+        setHistory(histData.slice(-5).reverse()); // show last 5 downloads
+      }
+
+      if (resResolved.ok) {
+        const resolvedList = await resResolved.json();
+        setResolvedIncidents(resolvedList);
+        let totalMs = 0;
+        let count = 0;
+        resolvedList.forEach(r => {
+          if (r.resolvedTime && r.timestamp) {
+            const diff = new Date(r.resolvedTime) - new Date(r.timestamp);
+            if (diff > 0) {
+              totalMs += diff;
+              count++;
+            }
+          }
+        });
+        if (count > 0) {
+          const avgHrs = (totalMs / (1000 * 60 * 60 * count)).toFixed(1);
+          setAvgResolutionTime(`${avgHrs} Hours`);
+        } else {
+          setAvgResolutionTime("N/A");
+        }
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchReportData();
+  }, []);
+
+  // Post dynamic log
+  const logReportDownload = async (reportName, format) => {
+    try {
+      await fetch("http://localhost:8080/api/reports/log", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${localStorage.getItem("token")}`
+        },
+        body: JSON.stringify({
+          reportName,
+          generatedBy: username,
+          reportType,
+          format
+        })
+      });
+      fetchReportData();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Export PDF
+  const handleExportPDF = () => {
+    if (!stats) return;
+    const doc = new jsPDF();
+    
+    // Header Style
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(20);
+    doc.setTextColor(13, 110, 253);
+    doc.text("CyberSOC Operations Console", 14, 20);
+    
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.setTextColor(100, 116, 139);
+    doc.text(`Security Analytics Summary Report | Range: ${reportType}`, 14, 26);
+    doc.text(`Generated: ${new Date().toLocaleString()} | User: ${username}`, 14, 32);
+    
+    doc.setDrawColor(226, 232, 240);
+    doc.line(14, 35, 196, 35);
+    
+    // Title
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(14);
+    doc.setTextColor(30, 41, 59);
+    doc.text("CyberSOC Enterprise Analytics Metrics", 14, 45);
+    
+    // Summary table containing Incident Statistics and SLA Metrics
+    const summaryData = [
+      ["Total Logged Alerts", stats.totalIncidents || 0],
+      ["Active Incidents", stats.activeIncidents || 0],
+      ["Resolved & Closed Incidents", stats.resolvedIncidents || 0],
+      ["Critical Incidents", stats.priorityBreakdown?.Critical || 0],
+      ["Escalated Incidents", stats.escalated || 0],
+      ["Pending Assignment", stats.pendingAssignment || 0],
+      ["Average Resolution Time", avgResolutionTime],
+      ["SLA Compliance Rate", `${stats.slaComplianceRate}%`],
+      ["SLA Timer Violations", stats.slaViolations || 0],
+      ["Report Period", `${reportType} (${startDate || 'All Time'} - ${endDate || 'Now'})`],
+      ["Generated By", username || "Admin"]
+    ];
+
+    autoTable(doc, {
+      startY: 50,
+      head: [["Metric Parameter", "Current Log Value"]],
+      body: summaryData,
+      theme: "grid",
+      headStyles: {
+        fillColor: [13, 110, 253],
+        textColor: [255, 255, 255],
+        fontSize: 10,
+        fontStyle: "bold"
+      },
+      bodyStyles: {
+        fontSize: 9,
+        textColor: [51, 65, 85]
+      },
+      alternateRowStyles: {
+        fillColor: [248, 250, 252]
+      },
+      tableLineColor: [226, 232, 240],
+      tableLineWidth: 0.5,
+      margin: { top: 50, bottom: 20, left: 14, right: 14 }
+    });
+
+    // Priority Distribution
+    const priorityData = Object.entries(stats.priorityBreakdown || {}).map(([p, count]) => [p, count]);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.text("Priority Distribution", 14, doc.lastAutoTable.finalY + 12);
+
+    autoTable(doc, {
+      startY: doc.lastAutoTable.finalY + 16,
+      head: [["Priority Level", "Incident Count"]],
+      body: priorityData,
+      theme: "grid",
+      headStyles: {
+        fillColor: [108, 117, 125],
+        textColor: [255, 255, 255],
+        fontSize: 10,
+        fontStyle: "bold"
+      },
+      bodyStyles: {
+        fontSize: 9,
+        textColor: [51, 65, 85]
+      },
+      alternateRowStyles: {
+        fillColor: [248, 250, 252]
+      },
+      tableLineColor: [226, 232, 240],
+      tableLineWidth: 0.5,
+      margin: { top: 50, bottom: 20, left: 14, right: 14 }
+    });
+
+    // AI Risk Level Distribution
+    const aiRiskData = Object.entries(stats.aiRiskLevelBreakdown || {}).map(([r, count]) => [r, count]);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.text("AI Risk Level Distribution", 14, doc.lastAutoTable.finalY + 12);
+
+    autoTable(doc, {
+      startY: doc.lastAutoTable.finalY + 16,
+      head: [["Risk Level", "Incident Count"]],
+      body: aiRiskData,
+      theme: "grid",
+      headStyles: {
+        fillColor: [108, 117, 125],
+        textColor: [255, 255, 255],
+        fontSize: 10,
+        fontStyle: "bold"
+      },
+      bodyStyles: {
+        fontSize: 9,
+        textColor: [51, 65, 85]
+      },
+      alternateRowStyles: {
+        fillColor: [248, 250, 252]
+      },
+      tableLineColor: [226, 232, 240],
+      tableLineWidth: 0.5,
+      margin: { top: 50, bottom: 20, left: 14, right: 14 }
+    });
+
+    // AI Recommended Priority Distribution
+    const aiRecPriorityData = Object.entries(stats.aiRecommendedPriorityBreakdown || {}).map(([p, count]) => [p, count]);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.text("AI Recommended Priority Distribution", 14, doc.lastAutoTable.finalY + 12);
+
+    autoTable(doc, {
+      startY: doc.lastAutoTable.finalY + 16,
+      head: [["Recommended Priority Level", "Incident Count"]],
+      body: aiRecPriorityData,
+      theme: "grid",
+      headStyles: {
+        fillColor: [108, 117, 125],
+        textColor: [255, 255, 255],
+        fontSize: 10,
+        fontStyle: "bold"
+      },
+      bodyStyles: {
+        fontSize: 9,
+        textColor: [51, 65, 85]
+      },
+      alternateRowStyles: {
+        fillColor: [248, 250, 252]
+      },
+      tableLineColor: [226, 232, 240],
+      tableLineWidth: 0.5,
+      margin: { top: 50, bottom: 20, left: 14, right: 14 }
+    });
+
+    // Analyst Performance Table
+    const analystData = stats.analystPerformance.map(a => [
+      a.fullName,
+      a.specialization || "Generalist",
+      a.level || "L1",
+      a.activeCount || 0,
+      a.resolvedCount || 0
+    ]);
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.setTextColor(30, 41, 59);
+    doc.text("Analyst Workload Performance Metrics", 14, doc.lastAutoTable.finalY + 12);
+    
+    autoTable(doc, {
+      startY: doc.lastAutoTable.finalY + 16,
+      head: [["Name", "Specialization", "Level", "Active Workload", "Resolved Total"]],
+      body: analystData,
+      theme: "grid",
+      headStyles: {
+        fillColor: [108, 117, 125],
+        textColor: [255, 255, 255],
+        fontSize: 10,
+        fontStyle: "bold"
+      },
+      bodyStyles: {
+        fontSize: 9,
+        textColor: [51, 65, 85]
+      },
+      alternateRowStyles: {
+        fillColor: [248, 250, 252]
+      },
+      tableLineColor: [226, 232, 240],
+      tableLineWidth: 0.5,
+      margin: { top: 50, bottom: 20, left: 14, right: 14 },
+      didDrawPage: (data) => {
+        const totalPages = doc.internal.getNumberOfPages();
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(8);
+        doc.setTextColor(148, 163, 184);
+        
+        const str = `Page ${data.pageNumber} of ${totalPages}`;
+        doc.text(str, data.settings.margin.left, doc.internal.pageSize.height - 10);
+        doc.text("CONFIDENTIAL - FOR INTERNAL SOC USE ONLY", doc.internal.pageSize.width - data.settings.margin.right - 70, doc.internal.pageSize.height - 10);
+      }
+    });
+
+    // ================= NEW SOC ENHANCEMENT SECTIONS =================
+
+    // Section 1: IOC Summary Table
+    const iocData = resolvedIncidents.map(inc => {
+      const iocs = extractIoCs(inc.description, inc.aiAssistantKeyIndicators);
+      const parts = [];
+      if (iocs.externalIp) parts.push(`IP: ${iocs.externalIp}`);
+      if (iocs.domain) parts.push(`Domain: ${iocs.domain}`);
+      if (iocs.hash) parts.push(`Hash: ${iocs.hash}`);
+      return [
+        `INC-${String(inc.incidentId).padStart(6, '0')}`,
+        inc.title || "—",
+        formatSpecialization(inc.category) || "—",
+        parts.length > 0 ? parts.join(" | ") : "Not Identified"
+      ];
+    });
+
+    doc.addPage();
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(14);
+    doc.text("IOC Summary Report", 14, 20);
+    autoTable(doc, {
+      startY: 25,
+      head: [["Incident ID", "Title", "Category", "Extracted IOCs"]],
+      body: iocData,
+      theme: "grid",
+      headStyles: { fillColor: [220, 53, 69] }
+    });
+
+    // Section 2: MITRE ATT&CK Mapping Table
+    const mitreData = [];
+    resolvedIncidents.forEach(inc => {
+      const mapping = getMitreMapping(inc.category);
+      if (mapping) {
+        mapping.forEach(m => {
+          mitreData.push([
+            `INC-${String(inc.incidentId).padStart(6, '0')}`,
+            inc.title || "—",
+            formatSpecialization(inc.category) || "—",
+            m.tactic,
+            m.techniqueId,
+            m.technique
+          ]);
+        });
+      } else {
+        mitreData.push([
+          `INC-${String(inc.incidentId).padStart(6, '0')}`,
+          inc.title || "—",
+          formatSpecialization(inc.category) || "—",
+          "N/A", "N/A", "No ATT&CK mapping available."
+        ]);
+      }
+    });
+
+    doc.addPage();
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(14);
+    doc.text("MITRE ATT&CK Mapping Summary", 14, 20);
+    autoTable(doc, {
+      startY: 25,
+      head: [["Incident ID", "Title", "Category", "Tactic", "Technique ID", "Technique"]],
+      body: mitreData,
+      theme: "grid",
+      headStyles: { fillColor: [255, 193, 7] }
+    });
+
+    // Section 3: Checklist Completion Table
+    const checklistData = resolvedIncidents.map(inc => {
+      let progress = "0%";
+      let countText = "0/0 Completed";
+      if (inc.checklistState) {
+        try {
+          const list = JSON.parse(inc.checklistState);
+          const total = list.length;
+          const completed = list.filter(item => item.checked).length;
+          const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+          progress = `${pct}%`;
+          countText = `${completed}/${total} Completed`;
+        } catch (e) {
+          // ignore
+        }
+      }
+      return [
+        `INC-${String(inc.incidentId).padStart(6, '0')}`,
+        inc.title || "—",
+        formatSpecialization(inc.category) || "—",
+        countText,
+        progress
+      ];
+    });
+
+    doc.addPage();
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(14);
+    doc.text("Checklist Completion Metrics", 14, 20);
+    autoTable(doc, {
+      startY: 25,
+      head: [["Incident ID", "Title", "Category", "Completed Tasks", "Progress"]],
+      body: checklistData,
+      theme: "grid",
+      headStyles: { fillColor: [40, 167, 69] }
+    });
+
+    // Section 4: AI Recommendation Decision Table
+    const recommendationData = resolvedIncidents.map(inc => {
+      return [
+        `INC-${String(inc.incidentId).padStart(6, '0')}`,
+        inc.title || "—",
+        inc.aiAssistantRiskLevel || "—",
+        inc.recommendedPriority || "—",
+        inc.aiRecommendationStatus || "Pending",
+        inc.aiRejectionReason || "—"
+      ];
+    });
+
+    doc.addPage();
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(14);
+    doc.text("AI Recommendation Decisions", 14, 20);
+    autoTable(doc, {
+      startY: 25,
+      head: [["Incident ID", "Title", "Risk Level", "Recommended Priority", "Status", "Override Reason"]],
+      body: recommendationData,
+      theme: "grid",
+      headStyles: { fillColor: [23, 162, 184] }
+    });
+
+    // Section 5: Resolved Incident Completion Summaries
+    const summaryDataRows = resolvedIncidents.map(inc => {
+      const created = new Date(inc.createdTime || inc.timestamp);
+      const resolved = inc.resolvedTime ? new Date(inc.resolvedTime) : new Date();
+      const durationMs = resolved - created;
+      const durationText = durationMs > 0 ? (durationMs / (1000 * 60 * 60)).toFixed(1) + " Hrs" : "0.5 Hrs";
+
+      let checklistPct = "0%";
+      if (inc.checklistState) {
+        try {
+          const list = JSON.parse(inc.checklistState);
+          const total = list.length;
+          const completed = list.filter(item => item.checked).length;
+          checklistPct = total > 0 ? `${Math.round((completed / total) * 100)}%` : "0%";
+        } catch (e) {}
+      }
+
+      const iocs = extractIoCs(inc.description, inc.aiAssistantKeyIndicators);
+      const iocCount = Object.values(iocs).filter(v => v && v.trim() !== "").length;
+
+      const mitre = getMitreMapping(inc.category);
+      const mitreText = mitre ? mitre.map(m => m.techniqueId).join(", ") : "None";
+
+      return [
+        `INC-${String(inc.incidentId).padStart(6, '0')}`,
+        inc.title || "—",
+        durationText,
+        checklistPct,
+        String(iocCount),
+        mitreText,
+        inc.aiAssistantRootCause || "External Intrusion"
+      ];
+    });
+
+    doc.addPage();
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(14);
+    doc.text("Incident Completion Summaries", 14, 20);
+    autoTable(doc, {
+      startY: 25,
+      head: [["Incident ID", "Title", "Duration", "Checklist %", "IOCs", "MITRE", "Root Cause"]],
+      body: summaryDataRows,
+      theme: "grid",
+      headStyles: { fillColor: [40, 167, 69] }
+    });
+
+    const reportName = `SOC_Security_Report_${new Date().toISOString().slice(0,10)}`;
+    doc.save(`${reportName}.pdf`);
+    logReportDownload(reportName, "PDF");
+  };
+
+  // Export CSV
+  const handleExportCSV = () => {
+    if (!stats) return;
+    const headers = ["Metric", "Value"];
+    const rows = [
+      ["Total Incidents", stats.totalIncidents],
+      ["Active Incidents", stats.activeIncidents],
+      ["Resolved Incidents", stats.resolvedIncidents],
+      ["SLA Compliance Rate (%)", stats.slaComplianceRate],
+      ["SLA Violations", stats.slaViolations]
+    ];
+
+    // Current Priority Breakdown
+    Object.entries(stats.priorityBreakdown || {}).forEach(([p, count]) => {
+      rows.push([`Current Priority Count (${p})`, count]);
+    });
+    // AI Risk Level Breakdown
+    Object.entries(stats.aiRiskLevelBreakdown || {}).forEach(([r, count]) => {
+      rows.push([`AI Risk Level Count (${r})`, count]);
+    });
+    // AI Recommended Priority Breakdown
+    Object.entries(stats.aiRecommendedPriorityBreakdown || {}).forEach(([p, count]) => {
+      rows.push([`AI Recommended Priority Count (${p})`, count]);
+    });
+
+    // Append IOC Summary
+    rows.push([]);
+    rows.push(["--- IOC SUMMARY ---"]);
+    rows.push(["Incident ID", "Title", "Category", "Extracted IOCs"]);
+    resolvedIncidents.forEach(inc => {
+      const iocs = extractIoCs(inc.description, inc.aiAssistantKeyIndicators);
+      const parts = [];
+      if (iocs.externalIp) parts.push(`IP: ${iocs.externalIp}`);
+      if (iocs.domain) parts.push(`Domain: ${iocs.domain}`);
+      if (iocs.hash) parts.push(`Hash: ${iocs.hash}`);
+      rows.push([
+        `INC-${String(inc.incidentId).padStart(6, '0')}`,
+        `"${(inc.title || "").replace(/"/g, '""')}"`,
+        formatSpecialization(inc.category),
+        `"${parts.join(' | ')}"`
+      ]);
+    });
+
+    // Append MITRE Mapping
+    rows.push([]);
+    rows.push(["--- MITRE ATT&CK MAPPING ---"]);
+    rows.push(["Incident ID", "Title", "Category", "Tactic", "Technique ID", "Technique"]);
+    resolvedIncidents.forEach(inc => {
+      const mapping = getMitreMapping(inc.category);
+      if (mapping) {
+        mapping.forEach(m => {
+          rows.push([
+            `INC-${String(inc.incidentId).padStart(6, '0')}`,
+            `"${(inc.title || "").replace(/"/g, '""')}"`,
+            formatSpecialization(inc.category),
+            m.tactic,
+            m.techniqueId,
+            m.technique
+          ]);
+        });
+      }
+    });
+
+    // Append Checklist Completion
+    rows.push([]);
+    rows.push(["--- CHECKLIST COMPLETION ---"]);
+    rows.push(["Incident ID", "Title", "Category", "Completed Tasks", "Progress"]);
+    resolvedIncidents.forEach(inc => {
+      let progress = "0%";
+      let countText = "0/0 Completed";
+      if (inc.checklistState) {
+        try {
+          const list = JSON.parse(inc.checklistState);
+          const total = list.length;
+          const completed = list.filter(item => item.checked).length;
+          const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+          progress = `${pct}%`;
+          countText = `${completed}/${total} Completed`;
+        } catch (e) {
+          // ignore
+        }
+      }
+      rows.push([
+        `INC-${String(inc.incidentId).padStart(6, '0')}`,
+        `"${(inc.title || "").replace(/"/g, '""')}"`,
+        formatSpecialization(inc.category),
+        countText,
+        progress
+      ]);
+    });
+
+    // Append AI Recommendation Decision
+    rows.push([]);
+    rows.push(["--- AI RECOMMENDATION DECISION ---"]);
+    rows.push(["Incident ID", "Title", "Risk Level", "Recommended Priority", "Recommendation Status", "Override Reason"]);
+    resolvedIncidents.forEach(inc => {
+      rows.push([
+        `INC-${String(inc.incidentId).padStart(6, '0')}`,
+        `"${(inc.title || "").replace(/"/g, '""')}"`,
+        inc.aiAssistantRiskLevel || "—",
+        inc.recommendedPriority || "—",
+        inc.aiRecommendationStatus || "Pending",
+        `"${(inc.aiRejectionReason || "—").replace(/"/g, '""')}"`
+      ]);
+    });
+
+    const csvContent = "data:text/csv;charset=utf-8," 
+      + [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
+    
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    const reportName = `SOC_Security_Report_${new Date().toISOString().slice(0,10)}`;
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `${reportName}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    logReportDownload(reportName, "CSV");
+  };
+
+  // Recharts configurations
+  const priorityColors = ["#dc3545", "#fd7e14", "#0dcaf0", "#198754"];
+  const priorityData = stats ? Object.keys(stats.priorityBreakdown).map(key => ({
+    name: key,
+    value: stats.priorityBreakdown[key]
+  })) : [];
+
+  const categoryData = stats ? Object.keys(stats.categoryBreakdown).map(key => ({
+    category: key,
+    count: stats.categoryBreakdown[key]
+  })) : [];
+
+  return (
+    <div className="app-wrapper">
+      <Navbar />
+      <div className="page-container">
+        <Sidebar />
+        <div className="main-content">
+          <div className="soc-breadcrumb">
+            <Link to="/dashboard">Home</Link>
+            <span>/</span>
+            <span>Analytics & Reports</span>
+          </div>
+
+          <div className="d-flex justify-content-between align-items-center mb-4">
+            <div>
+              <h2 className="m-0 fw-bold">Analytics & Reports Console</h2>
+              <p className="text-muted m-0">Aggregate threat landscape metrics and export summary sheets.</p>
+            </div>
+            <div className="d-flex gap-2">
+              <button onClick={handleExportPDF} className="btn btn-soc btn-outline-danger fw-semibold">
+                <FaFilePdf /> Export PDF
+              </button>
+              <button onClick={handleExportCSV} className="btn btn-soc btn-outline-primary fw-semibold">
+                <FaFileCsv /> Export CSV
+              </button>
+            </div>
+          </div>
+
+          {/* Date Picker Filtering panel */}
+          <div className="soc-card mb-4" style={{ padding: "16px" }}>
+            <div className="row g-2 align-items-center">
+              <div className="col-auto">
+                <FaCalendarAlt style={{ color: "#64748b" }} />
+              </div>
+              <div className="col-lg-2">
+                <select 
+                  className="soc-form-control py-1.5"
+                  style={{ fontSize: "14px" }}
+                  value={reportType}
+                  onChange={(e) => setReportType(e.target.value)}
+                >
+                  <option value="Daily">Daily Report</option>
+                  <option value="Weekly">Weekly Report</option>
+                  <option value="Monthly">Monthly Report</option>
+                  <option value="Custom">Custom Range</option>
+                </select>
+              </div>
+              <div className="col-lg-3">
+                <input 
+                  type="date" 
+                  className="soc-form-control py-1.5"
+                  style={{ fontSize: "14px" }}
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  placeholder="Start Date"
+                />
+              </div>
+              <div className="col-lg-3">
+                <input 
+                  type="date" 
+                  className="soc-form-control py-1.5"
+                  style={{ fontSize: "14px" }}
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  placeholder="End Date"
+                />
+              </div>
+              <div className="col-lg-2">
+                <button onClick={fetchReportData} className="btn btn-sm btn-primary py-2 w-100 fw-semibold">
+                  Update Filters
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {loading || !stats ? (
+            <div className="soc-card py-5 text-center">
+              <div className="spinner-border text-primary" role="status"></div>
+              <p className="mt-2 text-muted">Calculating aggregate metrics...</p>
+            </div>
+          ) : (
+            <>
+              {/* Stats highlights */}
+              <div className="row g-4 mb-4">
+                <div className="col-md-3">
+                  <div className="soc-card text-center bg-light">
+                    <h2 className="fw-extrabold m-0 text-dark">{stats.totalIncidents}</h2>
+                    <small className="text-muted text-uppercase fw-semibold" style={{ fontSize: "12px" }}>Total Alerts Logged</small>
+                  </div>
+                </div>
+                <div className="col-md-3">
+                  <div className="soc-card text-center bg-light">
+                    <h2 className="fw-extrabold m-0 text-danger">{stats.activeIncidents}</h2>
+                    <small className="text-muted text-uppercase fw-semibold" style={{ fontSize: "12px" }}>Active Telemetry</small>
+                  </div>
+                </div>
+                <div className="col-md-3">
+                  <div className="soc-card text-center bg-light">
+                    <h2 className="fw-extrabold m-0 text-success">{stats.resolvedIncidents}</h2>
+                    <small className="text-muted text-uppercase fw-semibold" style={{ fontSize: "12px" }}>Resolved Incidents</small>
+                  </div>
+                </div>
+                <div className="col-md-3">
+                  <div className="soc-card text-center bg-light">
+                    <h2 className="fw-extrabold m-0 text-primary">{stats.slaComplianceRate}%</h2>
+                    <small className="text-muted text-uppercase fw-semibold" style={{ fontSize: "12px" }}>SLA Response Rate</small>
+                  </div>
+                </div>
+              </div>
+
+              {/* Chart panels */}
+              <div className="row g-4 mb-4">
+                <div className="col-md-6">
+                  <div className="soc-card">
+                    <div className="soc-card-title">Threat Categories Breakdown</div>
+                    <div style={{ height: "240px", width: "100%" }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={categoryData}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                          <XAxis dataKey="category" stroke="#94a3b8" />
+                          <YAxis stroke="#94a3b8" />
+                          <Tooltip />
+                          <Bar dataKey="count" fill="#0d6efd" radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="col-md-6">
+                  <div className="soc-card">
+                    <div className="soc-card-title">Priority Landscape Level</div>
+                    <div style={{ height: "240px", width: "100%" }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={priorityData.filter(d => d.value > 0)}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={50}
+                            outerRadius={70}
+                            paddingAngle={5}
+                            dataKey="value"
+                          >
+                            {priorityData.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={priorityColors[index % priorityColors.length]} />
+                            ))}
+                          </Pie>
+                          <Tooltip />
+                          <Legend />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Analyst list and Download history */}
+              <div className="row g-4">
+                <div className="col-lg-8">
+                  <div className="soc-card">
+                    <div className="soc-card-title">Analyst Workload Distribution</div>
+                    <div className="table-responsive">
+                      <table className="table align-middle m-0" style={{ fontSize: "14px" }}>
+                        <thead>
+                          <tr className="text-muted">
+                            <th>Analyst Name</th>
+                            <th>Specialization</th>
+                            <th>Level</th>
+                            <th>Active Alerts</th>
+                            <th>Resolved Total</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {stats.analystPerformance.map((perf, idx) => (
+                            <tr key={idx}>
+                              <td><strong>{perf.fullName}</strong></td>
+                              <td><span className="badge bg-light text-dark border">{perf.specialization || "General"}</span></td>
+                              <td>{perf.level}</td>
+                              <td><span className="badge bg-danger-subtle text-danger">{perf.activeCount} Active</span></td>
+                              <td><span className="badge bg-success-subtle text-success">{perf.resolvedCount} Resolved</span></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="col-lg-4">
+                  <div className="soc-card">
+                    <div className="soc-card-title">Recent Report Logs</div>
+                    <div className="d-flex flex-column gap-3">
+                      {history.length === 0 ? (
+                        <p className="text-muted text-center m-0 py-3">No report logs registered.</p>
+                      ) : (
+                        history.map((h, i) => (
+                          <div key={i} className="p-2 border rounded bg-light" style={{ fontSize: "13px" }}>
+                            <strong className="text-dark d-block text-truncate">{h.reportName}</strong>
+                            <small className="text-muted d-block mt-0.5">
+                              Format: <strong className="text-primary">{h.format}</strong> | By: {h.generatedBy}
+                            </small>
+                            <small className="text-muted d-block" style={{ fontSize: "11px" }}>{h.generatedTime}</small>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default Reports;

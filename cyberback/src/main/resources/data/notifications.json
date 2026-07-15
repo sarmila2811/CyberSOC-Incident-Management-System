@@ -1,0 +1,25 @@
+[ {
+  "id" : 1,
+  "type" : "ASSIGNED",
+  "message" : "You have been assigned incident: phishing",
+  "user" : "analyst2",
+  "read" : false
+}, {
+  "id" : 2,
+  "type" : "ASSIGNED",
+  "message" : "You have been assigned incident: Suspicious Phishing Email",
+  "user" : "analyst2",
+  "read" : false
+}, {
+  "id" : 3,
+  "type" : "INCIDENT",
+  "message" : "New Incident Reported: malware",
+  "user" : "admin",
+  "read" : false
+}, {
+  "id" : 4,
+  "type" : "ASSIGNED",
+  "message" : "You have been assigned incident: malware",
+  "user" : "analyst2",
+  "read" : false
+} ]
