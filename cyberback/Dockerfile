@@ -17,6 +17,9 @@ WORKDIR /app
 # Copy the compiled executable jar from the build stage
 COPY --from=build /app/target/cybersoc-0.0.1-SNAPSHOT.jar app.jar
 
+# Copy the uploads directory containing profile pictures
+COPY uploads ./uploads
+
 # Expose port 8080
 EXPOSE 8080
 
