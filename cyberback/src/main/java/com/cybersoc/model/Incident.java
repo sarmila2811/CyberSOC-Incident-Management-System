@@ -3,7 +3,13 @@ package com.cybersoc.model;
 import jakarta.persistence.*;
 
 @Entity
-@Table(name = "incidents")
+@Table(name = "incidents", indexes = {
+    @Index(name = "idx_incidents_status", columnList = "status"),
+    @Index(name = "idx_incidents_assigned_to", columnList = "assignedTo"),
+    @Index(name = "idx_incidents_reported_by", columnList = "reportedBy"),
+    @Index(name = "idx_incidents_category", columnList = "category"),
+    @Index(name = "idx_incidents_priority", columnList = "priority")
+})
 public class Incident {
 
     @Id

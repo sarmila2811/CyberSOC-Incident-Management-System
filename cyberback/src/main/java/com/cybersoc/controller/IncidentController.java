@@ -2,6 +2,8 @@ package com.cybersoc.controller;
 
 import com.cybersoc.model.Incident;
 import com.cybersoc.model.ResolvedIncident;
+import com.cybersoc.dto.IncidentSummaryDTO;
+import com.cybersoc.dto.ResolvedIncidentSummaryDTO;
 import com.cybersoc.model.EscalationHistory;
 import com.cybersoc.model.Notification;
 import com.cybersoc.model.User;
@@ -228,11 +230,12 @@ public class IncidentController {
 
     // ================= GET ALL (ACTIVE + RESOLVED) =================
     @GetMapping
-    public List<Incident> getAll() {
+    public List<IncidentSummaryDTO> getAll() {
         List<Incident> activeIncidents = service.getAll();
         activeIncidents.forEach(this::syncDescriptionDepartment);
         activeIncidents.forEach(this::updateSlaStatus);
         
+        List<Incident> filtered;
         org.springframework.security.core.Authentication auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
         if (auth != null && auth.isAuthenticated()) {
             String currentUsername = auth.getName();
@@ -242,25 +245,29 @@ public class IncidentController {
                 String role = user.getRole() != null ? user.getRole().toUpperCase() : "";
                 if ("ANALYST".equals(role)) {
                     String spec = user.getSpecialization();
-                    return filterUniqueIncidents(activeIncidents.stream().filter(inc -> {
+                    filtered = filterUniqueIncidents(activeIncidents.stream().filter(inc -> {
                         boolean isAssignedToMe = currentUsername.equalsIgnoreCase(inc.getAssignedTo());
                         boolean isSpecializationMatch = com.cybersoc.service.AnalystAssignmentService.doesSpecializationMatch(inc.getCategory(), spec);
                         return isAssignedToMe || isSpecializationMatch;
                     }).toList());
+                    return filtered.stream().map(IncidentSummaryDTO::new).toList();
                 } else if ("EMPLOYEE".equals(role)) {
-                    return filterUniqueIncidents(activeIncidents.stream().filter(inc -> currentUsername.equalsIgnoreCase(inc.getReportedBy())).toList());
+                    filtered = filterUniqueIncidents(activeIncidents.stream().filter(inc -> currentUsername.equalsIgnoreCase(inc.getReportedBy())).toList());
+                    return filtered.stream().map(IncidentSummaryDTO::new).toList();
                 }
             }
         }
-        return filterUniqueIncidents(activeIncidents);
+        filtered = filterUniqueIncidents(activeIncidents);
+        return filtered.stream().map(IncidentSummaryDTO::new).toList();
     }
 
     @GetMapping("/active")
-    public List<Incident> getActive() {
+    public List<IncidentSummaryDTO> getActive() {
         List<Incident> activeIncidents = service.findActiveIncidents();
         activeIncidents.forEach(this::syncDescriptionDepartment);
         activeIncidents.forEach(this::updateSlaStatus);
         
+        List<Incident> filtered;
         org.springframework.security.core.Authentication auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
         if (auth != null && auth.isAuthenticated()) {
             String currentUsername = auth.getName();
@@ -270,17 +277,20 @@ public class IncidentController {
                 String role = user.getRole() != null ? user.getRole().toUpperCase() : "";
                 if ("ANALYST".equals(role)) {
                     String spec = user.getSpecialization();
-                    return filterUniqueIncidents(activeIncidents.stream().filter(inc -> {
+                    filtered = filterUniqueIncidents(activeIncidents.stream().filter(inc -> {
                         boolean isAssignedToMe = currentUsername.equalsIgnoreCase(inc.getAssignedTo());
                         boolean isSpecializationMatch = com.cybersoc.service.AnalystAssignmentService.doesSpecializationMatch(inc.getCategory(), spec);
                         return isAssignedToMe || isSpecializationMatch;
                     }).toList());
+                    return filtered.stream().map(IncidentSummaryDTO::new).toList();
                 } else if ("EMPLOYEE".equals(role)) {
-                    return filterUniqueIncidents(activeIncidents.stream().filter(inc -> currentUsername.equalsIgnoreCase(inc.getReportedBy())).toList());
+                    filtered = filterUniqueIncidents(activeIncidents.stream().filter(inc -> currentUsername.equalsIgnoreCase(inc.getReportedBy())).toList());
+                    return filtered.stream().map(IncidentSummaryDTO::new).toList();
                 }
             }
         }
-        return filterUniqueIncidents(activeIncidents);
+        filtered = filterUniqueIncidents(activeIncidents);
+        return filtered.stream().map(IncidentSummaryDTO::new).toList();
     }
 
     private Incident convertToIncident(ResolvedIncident resolved) {
@@ -351,17 +361,18 @@ public class IncidentController {
 
     // ================= GET OWN INCIDENTS =================
     @GetMapping("/user/{username}")
-    public List<Incident> getByUser(@PathVariable String username) {
+    public List<IncidentSummaryDTO> getByUser(@PathVariable String username) {
         List<Incident> userIncidents = service.findActiveIncidents().stream()
                 .filter(i -> username.equalsIgnoreCase(i.getReportedBy()))
                 .toList();
         userIncidents.forEach(this::syncDescriptionDepartment);
         userIncidents.forEach(this::updateSlaStatus);
-        return filterUniqueIncidents(userIncidents);
+        List<Incident> filtered = filterUniqueIncidents(userIncidents);
+        return filtered.stream().map(IncidentSummaryDTO::new).toList();
     }
 
     @GetMapping("/my-incidents/{username}")
-    public List<Incident> getMyIncidents(@PathVariable String username) {
+    public List<IncidentSummaryDTO> getMyIncidents(@PathVariable String username) {
         List<Incident> allActive = service.findActiveIncidents();
         allActive.forEach(this::syncDescriptionDepartment);
         
@@ -373,11 +384,12 @@ public class IncidentController {
                 .toList();
         
         activeAssigned.forEach(this::updateSlaStatus);
-        return filterUniqueIncidents(activeAssigned);
+        List<Incident> filtered = filterUniqueIncidents(activeAssigned);
+        return filtered.stream().map(IncidentSummaryDTO::new).toList();
     }
 
     @GetMapping("/resolved")
-    public List<ResolvedIncident> getResolvedIncidents() {
+    public List<ResolvedIncidentSummaryDTO> getResolvedIncidents() {
         List<ResolvedIncident> allResolved = new java.util.ArrayList<>(resolvedIncidentRepository.findAll());
         
         List<Incident> activeResolved = service.getAll().stream()
@@ -394,6 +406,7 @@ public class IncidentController {
             }
         }
         
+        List<ResolvedIncident> filtered;
         org.springframework.security.core.Authentication auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
         if (auth != null && auth.isAuthenticated()) {
             String currentUsername = auth.getName();
@@ -403,24 +416,26 @@ public class IncidentController {
                 String role = user.getRole() != null ? user.getRole().toUpperCase() : "";
                 if ("ANALYST".equals(role)) {
                     String spec = user.getSpecialization();
-                    return filterUniqueResolvedIncidents(allResolved.stream().filter(inc -> {
+                    filtered = filterUniqueResolvedIncidents(allResolved.stream().filter(inc -> {
                         boolean isAssignedToMe = currentUsername.equalsIgnoreCase(inc.getAssignedAnalyst());
                         boolean isSpecializationMatch = com.cybersoc.service.AnalystAssignmentService.doesSpecializationMatch(inc.getCategory(), spec);
                         return isAssignedToMe || isSpecializationMatch;
                     }).toList());
+                    return filtered.stream().map(ResolvedIncidentSummaryDTO::new).toList();
                 } else if ("EMPLOYEE".equals(role)) {
-                    return filterUniqueResolvedIncidents(allResolved.stream().filter(inc -> 
+                    filtered = filterUniqueResolvedIncidents(allResolved.stream().filter(inc -> 
                         currentUsername.equalsIgnoreCase(inc.getReportedBy())
                     ).toList());
+                    return filtered.stream().map(ResolvedIncidentSummaryDTO::new).toList();
                 }
             }
         }
-        return filterUniqueResolvedIncidents(allResolved);
+        filtered = filterUniqueResolvedIncidents(allResolved);
+        return filtered.stream().map(ResolvedIncidentSummaryDTO::new).toList();
     }
 
-    // ================= GET PENDING APPROVAL INCIDENTS =================
     @GetMapping("/pending-approval")
-    public List<Incident> getPendingApproval() {
+    public List<IncidentSummaryDTO> getPendingApproval() {
         List<Incident> allIncidents = service.getAll();
         allIncidents.forEach(this::syncDescriptionDepartment);
         allIncidents.forEach(this::updateSlaStatus);
@@ -430,6 +445,7 @@ public class IncidentController {
                              "PENDING_ADMIN_APPROVAL".equalsIgnoreCase(i.getStatus()))
                 .toList();
                 
+        List<Incident> filtered;
         org.springframework.security.core.Authentication auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
         if (auth != null && auth.isAuthenticated()) {
             String currentUsername = auth.getName();
@@ -439,19 +455,22 @@ public class IncidentController {
                 String role = user.getRole() != null ? user.getRole().toUpperCase() : "";
                 if ("ANALYST".equals(role)) {
                     String spec = user.getSpecialization();
-                    return filterUniqueIncidents(pending.stream().filter(inc -> {
+                    filtered = filterUniqueIncidents(pending.stream().filter(inc -> {
                         boolean isAssignedToMe = currentUsername.equalsIgnoreCase(inc.getAssignedTo());
                         boolean isSpecializationMatch = com.cybersoc.service.AnalystAssignmentService.doesSpecializationMatch(inc.getCategory(), spec);
                         return isAssignedToMe || isSpecializationMatch;
                     }).toList());
+                    return filtered.stream().map(IncidentSummaryDTO::new).toList();
                 } else if ("EMPLOYEE".equals(role)) {
-                    return filterUniqueIncidents(pending.stream().filter(inc -> 
+                    filtered = filterUniqueIncidents(pending.stream().filter(inc -> 
                         currentUsername.equalsIgnoreCase(inc.getReportedBy())
                     ).toList());
+                    return filtered.stream().map(IncidentSummaryDTO::new).toList();
                 }
             }
         }
-        return filterUniqueIncidents(pending);
+        filtered = filterUniqueIncidents(pending);
+        return filtered.stream().map(IncidentSummaryDTO::new).toList();
     }
 
     // ================= AI ANALYST RECOMMENDATION =================
