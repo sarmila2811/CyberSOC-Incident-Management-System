@@ -7,13 +7,24 @@ export const formatIncidentId = (id) => {
 
 export const formatTimestamp = (ts) => {
   if (!ts) return "—";
-  // Replacing space with 'T' converts 'yyyy-MM-dd HH:mm:ss' to ISO 'yyyy-MM-ddTHH:mm:ss' for robust browser parsing
-  const isoStr = ts.includes(" ") ? ts.replace(" ", "T") : ts;
-  const date = new Date(isoStr);
+  
+  let date;
+  if (typeof ts === 'string') {
+    const cleanTs = ts.trim();
+    if (!cleanTs.includes("Z") && !/[+-]\d{2}:?\d{2}$/.test(cleanTs)) {
+      const isoStr = cleanTs.includes(" ") ? cleanTs.replace(" ", "T") : cleanTs;
+      date = new Date(isoStr + "+05:30");
+    } else {
+      date = new Date(cleanTs);
+    }
+  } else {
+    date = new Date(ts);
+  }
+
   if (isNaN(date.getTime())) return ts;
 
-  const optionsDate = { day: '2-digit', month: 'short', year: 'numeric' };
-  const optionsTime = { hour: '2-digit', minute: '2-digit', hour12: true };
+  const optionsDate = { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' };
+  const optionsTime = { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' };
 
   const datePart = date.toLocaleDateString('en-GB', optionsDate); // "06 Jul 2026"
   const timePart = date.toLocaleTimeString('en-US', optionsTime); // "03:45 PM"

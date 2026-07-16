@@ -9,9 +9,18 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import jakarta.annotation.PostConstruct;
+import java.util.TimeZone;
+
 @SpringBootApplication
 @EnableScheduling
 public class CybersocApplication {
+
+    @PostConstruct
+    public void init() {
+        TimeZone.setDefault(TimeZone.getTimeZone("Asia/Kolkata"));
+        System.out.println("====== DEFAULT TIMEZONE SET TO ASIA/KOLKATA ======");
+    }
 
     public static void main(String[] args) {
         SpringApplication.run(
