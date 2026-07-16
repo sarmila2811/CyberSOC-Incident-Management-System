@@ -15,6 +15,8 @@ import com.cybersoc.repository.AssignmentHistoryRepository;
 import com.cybersoc.repository.EscalationHistoryRepository;
 import com.cybersoc.repository.ResolvedIncidentRepository;
 
+import jakarta.persistence.EntityManager;
+
 @Service
 public class AnalystAssignmentService {
 
@@ -26,6 +28,7 @@ public class AnalystAssignmentService {
     private final NotificationService notificationService;
     private final AuditService auditService;
     private final EmailService emailService;
+    private final EntityManager entityManager;
 
     public AnalystAssignmentService(UserRepository userRepository,
                                     IncidentRepository incidentRepository,
@@ -34,7 +37,8 @@ public class AnalystAssignmentService {
                                     EscalationHistoryRepository escalationHistoryRepository,
                                     NotificationService notificationService,
                                     AuditService auditService,
-                                    EmailService emailService) {
+                                    EmailService emailService,
+                                    EntityManager entityManager) {
         this.userRepository = userRepository;
         this.incidentRepository = incidentRepository;
         this.resolvedIncidentRepository = resolvedIncidentRepository;
@@ -43,6 +47,7 @@ public class AnalystAssignmentService {
         this.notificationService = notificationService;
         this.auditService = auditService;
         this.emailService = emailService;
+        this.entityManager = entityManager;
     }
 
     public User assignL1(String category) {
@@ -120,6 +125,8 @@ public class AnalystAssignmentService {
     }
 
     public User getAiRecommendedAnalyst(Incident incident) {
+        entityManager.clear(); // Clear persistence context cache to force a fresh SELECT query to database
+        
         List<User> activeAnalysts = userRepository.findAll().stream()
                 .filter(u -> u.getRole() != null && "ANALYST".equalsIgnoreCase(u.getRole().trim()))
                 .filter(u -> "ACTIVE".equalsIgnoreCase(u.getStatus()))
@@ -140,11 +147,23 @@ public class AnalystAssignmentService {
 
         System.out.println("Candidate Scores:");
         for (User analyst : activeAnalysts) {
-            double finalScore = calculateAnalystScore(incident, analyst);
             long activeWorkload = incidentRepository.countActiveWorkload(analyst.getUsername());
             long similarResolved = resolvedIncidentRepository.findAll().stream()
                     .filter(r -> analyst.getUsername().equalsIgnoreCase(r.getAssignedAnalyst()) && incident.getCategory().equalsIgnoreCase(r.getCategory()))
                     .count();
+
+            // Log live values read from database before scoring
+            System.out.println("DEBUG - Live Roster Data for " + analyst.getUsername() + ": "
+                + "Level=" + analyst.getAnalystLevel()
+                + ", Spec=" + analyst.getSpecialization()
+                + ", PerformanceScore=" + analyst.getPerformanceScore()
+                + ", ResolvedCount=" + analyst.getResolvedCount()
+                + ", TotalAssigned=" + analyst.getTotalAssignedIncidents()
+                + ", Escalated=" + analyst.getEscalatedIncidents()
+                + ", ActiveWorkload=" + activeWorkload
+                + ", SimilarResolved=" + similarResolved);
+
+            double finalScore = calculateAnalystScore(incident, analyst);
 
             boolean specMatch = doesSpecializationMatch(incident.getCategory(), analyst.getSpecialization());
             double specScore = specMatch ? 40.0 : 0.0;
@@ -153,7 +172,7 @@ public class AnalystAssignmentService {
             double performanceScore = (rawPerf / 100.0) * 25.0;
             double bonusScore = calculateBonusScore(incident, analyst);
 
-            System.out.println(analyst.getFullName() + " : " + String.format("%.2f", finalScore) + "% (Spec: " 
+            System.out.println("-> Score: " + String.format("%.2f", finalScore) + "% (Spec: " 
                 + String.format("%.1f", specScore) + ", Workload: " 
                 + String.format("%.1f", workloadScore) + ", Perf: " 
                 + String.format("%.1f", performanceScore) + ", Bonus: " 
