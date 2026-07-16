@@ -116,65 +116,7 @@ public class AnalystAssignmentService {
     }
 
     public Incident autoAssignOnReport(Incident incident) {
-        // Determine routing confidence using L1 candidate
-        User recommendedL1 = assignL1(incident.getCategory());
-        int confidence = calculateRoutingConfidence(incident, recommendedL1);
-        incident.setRoutingConfidence(confidence);
-
-        if (confidence > 80) {
-            // Assign L1 Analyst
-            if (recommendedL1 != null) {
-                String reasonText = "Incident assigned to " + recommendedL1.getFullName() + " because AI confidence is high (" + confidence + "%). Selection is based on specialization match, low workload, and high resolution success rate.";
-                assignToAnalyst(incident, recommendedL1, "L1", "Unassigned", "System", "Automatic", reasonText);
-                return incident;
-            }
-            // Fallback to L2
-            User l2Analyst = assignL2(incident.getCategory());
-            if (l2Analyst != null) {
-                String reasonText = "L1 analyst was unavailable. Incident assigned to " + l2Analyst.getFullName() + " with high AI confidence (" + confidence + "%).";
-                assignToAnalyst(incident, l2Analyst, "L2", "Unassigned", "System", "Automatic Escalation", reasonText);
-                return incident;
-            }
-        } else if (confidence >= 50 && confidence <= 80) {
-            // Assign L2 Analyst
-            User l2Analyst = assignL2(incident.getCategory());
-            if (l2Analyst != null) {
-                String reasonText = "Incident assigned to " + l2Analyst.getFullName() + " because AI confidence is moderate (" + confidence + "%), requiring L2 tier response.";
-                assignToAnalyst(incident, l2Analyst, "L2", "Unassigned", "System", "Automatic Escalation", reasonText);
-                return incident;
-            }
-            // Fallback to L3
-            User l3Analyst = assignL3(incident.getCategory());
-            if (l3Analyst != null) {
-                String reasonText = "L2 analyst was unavailable. Incident assigned to L3 " + l3Analyst.getFullName() + " with moderate AI confidence (" + confidence + "%).";
-                assignToAnalyst(incident, l3Analyst, "L3", "Unassigned", "System", "Automatic Escalation", reasonText);
-                return incident;
-            }
-        } else {
-            // Require Admin Review
-            incident.setStatus("PENDING_ASSIGNMENT");
-            incident.setAssignedTo(null);
-            incident.setAssignedAnalystName(null);
-            incident.setUpdatedTime(now());
-            incidentRepository.save(incident);
-
-            auditService.log(
-                "System",
-                "Pending Admin Assignment",
-                String.valueOf(incident.getId()),
-                incident.getTitle(),
-                "None",
-                "PENDING_ASSIGNMENT",
-                "127.0.0.1",
-                "Incident routed to Admin Review due to low AI confidence (" + confidence + "%)."
-            );
-            notificationService.send(new Notification("PENDING_ASSIGNMENT", "Incident INC-" + String.format("%06d", incident.getId()) + " requires Admin Review due to low AI confidence (" + confidence + "%).", "admin"));
-            return incident;
-        }
-
-        // Fallback to Management Review if L1/L2/L3 unavailable
-        moveToManagementReview(incident, "Unassigned", "L1", "No matching L1, L2, or L3 analysts available");
-        return incident;
+        return autoAssignWithAi(incident);
     }
 
     public User getAiRecommendedAnalyst(Incident incident) {
@@ -279,8 +221,7 @@ public class AnalystAssignmentService {
 
     public Incident autoAssignWithAi(Incident incident) {
         User recommended = getAiRecommendedAnalyst(incident);
-        double aiMatchScore = calculateAnalystScore(incident, recommended);
-        int confidence = (int) Math.round(aiMatchScore);
+        int confidence = calculateRoutingConfidence(incident, recommended);
         incident.setRoutingConfidence(confidence);
         incident.setAiAssistantConfidenceScore(String.valueOf(confidence));
 
@@ -293,15 +234,13 @@ public class AnalystAssignmentService {
             }
         }
 
-        // Auto assignment criteria: Match Score >= 80%, analyst present, and Critical priority requires L2/L3 analyst
-        boolean canAutoAssign = (aiMatchScore >= 80.0) && (recommended != null) && (!isCritical || hasL2L3Validation);
+        // Auto assignment criteria: Routing Confidence >= 80%, analyst present, and Critical priority requires L2/L3 analyst
+        boolean canAutoAssign = (confidence >= 80) && (recommended != null) && (!isCritical || hasL2L3Validation);
 
         if (canAutoAssign) {
-            String reasonText = "Automatically assigned because AI confidence score exceeded 80% threshold.";
-            
             // Assign to analyst
             assignToAnalyst(incident, recommended, recommended.getAnalystLevel() != null ? recommended.getAnalystLevel() : "L1", 
-                            "Unassigned", "AI System", "Automatic AI Assignment", reasonText);
+                            "Unassigned", "AI System", "AUTO_ASSIGNED", "AI confidence above 80% threshold.");
             
             incident.setStatus("UNDER_INVESTIGATION");
             incident.setUpdatedTime(now());
@@ -316,7 +255,7 @@ public class AnalystAssignmentService {
                 "Unassigned",
                 recommended.getUsername(),
                 "127.0.0.1",
-                "Automatically assigned because AI confidence score exceeded 80% threshold. Recommended: " + recommended.getFullName() + " (Score: " + confidence + "%)."
+                "AI Routing Confidence: " + confidence + "% | Auto Assignment: GRANTED | Reason: Above 80% threshold."
             );
             return saved;
         } else {
@@ -326,7 +265,7 @@ public class AnalystAssignmentService {
             incident.setAssignedAnalystName(null);
             incident.setUpdatedTime(now());
             
-            String failReason = "AI confidence below 80% threshold.";
+            String failReason = "AI confidence below automatic assignment threshold.";
             if (isCritical && !hasL2L3Validation && recommended != null) {
                 failReason = "Critical incident requires L2/L3 analyst validation.";
             } else if (recommended == null) {
@@ -337,6 +276,33 @@ public class AnalystAssignmentService {
             
             Incident saved = incidentRepository.save(incident);
             
+            // Save Assignment History for the blocked/pending assignment
+            AssignmentHistory ah = new AssignmentHistory();
+            ah.setIncidentId(saved.getId());
+            ah.setAssignedBy("AI System");
+            ah.setAssignedTo("Unassigned");
+            ah.setAssignedToName("Pending Manual Assignment");
+            ah.setIncidentCategory(saved.getCategory());
+            ah.setAnalystSpecialization("None");
+            ah.setOverride(false);
+            ah.setAssignmentType("PENDING_ADMIN_REVIEW");
+            
+            String detailedReason = "AI Confidence Score:\n"
+                + confidence + "%\n\n"
+                + "Decision:\n"
+                + "ADMIN_REVIEW_REQUIRED\n\n"
+                + "Reason:\n"
+                + "AI confidence below automatic assignment threshold.";
+                
+            ah.setReason(detailedReason);
+            ah.setAssignmentTime(now());
+            assignmentHistoryRepository.save(ah);
+            
+            // Print console logs as required
+            System.out.println("AI Routing Confidence: " + confidence + "%");
+            System.out.println("Auto Assignment: BLOCKED");
+            System.out.println("Reason: Below 80% threshold.");
+            
             auditService.log(
                 "AI System",
                 "PENDING ASSIGNMENT - LOW CONFIDENCE",
@@ -345,7 +311,7 @@ public class AnalystAssignmentService {
                 "Unassigned",
                 "None",
                 "127.0.0.1",
-                "Incident routed to Admin Review: " + failReason + " (Score: " + confidence + "%)."
+                "AI Routing Confidence: " + confidence + "% | Auto Assignment: BLOCKED | Reason: Below 80% threshold."
             );
             
             // Notify Admin that manual assignment is required due to low AI confidence
@@ -548,14 +514,25 @@ public class AnalystAssignmentService {
             }
         }
 
-        String detailedReason = actionHeader + "\n"
-            + "Assignment Decision\n"
-            + "Specialization Match : " + String.format("%.0f", specScore) + "\n"
-            + "Workload Score : " + String.format("%.0f", workloadScore) + "\n"
-            + "Performance Score : " + String.format("%.1f", perfScore) + "\n"
-            + "Final Assignment Score : " + String.format("%.2f", assignmentScore) + "\n"
-            + "Reason\n"
-            + decisionExplanation;
+        String detailedReason;
+        if ("AUTO_ASSIGNED".equals(type)) {
+            detailedReason = "AI Confidence Score:\n"
+                + (incident.getRoutingConfidence() != null ? incident.getRoutingConfidence() + "%" : "N/A") + "\n\n"
+                + "Decision:\n"
+                + "AUTO_ASSIGNED\n\n"
+                + "Reason:\n"
+                + "AI confidence above 80% threshold.";
+        } else {
+            detailedReason = actionHeader + "\n"
+                + "AI Confidence Score: " + (incident.getRoutingConfidence() != null ? incident.getRoutingConfidence() + "%" : "N/A") + "\n"
+                + "Assignment Decision: Automatically assigned because AI confidence score exceeded 80% threshold.\n"
+                + "Specialization Match : " + String.format("%.0f", specScore) + "\n"
+                + "Workload Score : " + String.format("%.0f", workloadScore) + "\n"
+                + "Performance Score : " + String.format("%.1f", perfScore) + "\n"
+                + "Final Assignment Score : " + String.format("%.2f", assignmentScore) + "\n"
+                + "Reason\n"
+                + decisionExplanation;
+        }
 
         // Save Assignment History
         AssignmentHistory ah = new AssignmentHistory();
