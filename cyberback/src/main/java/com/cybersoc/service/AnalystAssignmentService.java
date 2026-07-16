@@ -146,7 +146,18 @@ public class AnalystAssignmentService {
                     .filter(r -> analyst.getUsername().equalsIgnoreCase(r.getAssignedAnalyst()) && incident.getCategory().equalsIgnoreCase(r.getCategory()))
                     .count();
 
-            System.out.println(analyst.getFullName() + " : " + String.format("%.2f", finalScore) + "%");
+            boolean specMatch = doesSpecializationMatch(incident.getCategory(), analyst.getSpecialization());
+            double specScore = specMatch ? 40.0 : 0.0;
+            double workloadScore = Math.max(0.0, 25.0 - (activeWorkload * 5.0));
+            double rawPerf = analyst.getPerformanceScore() != null ? analyst.getPerformanceScore() : 0.0;
+            double performanceScore = (rawPerf / 100.0) * 25.0;
+            double bonusScore = calculateBonusScore(incident, analyst);
+
+            System.out.println(analyst.getFullName() + " : " + String.format("%.2f", finalScore) + "% (Spec: " 
+                + String.format("%.1f", specScore) + ", Workload: " 
+                + String.format("%.1f", workloadScore) + ", Perf: " 
+                + String.format("%.1f", performanceScore) + ", Bonus: " 
+                + String.format("%.1f", bonusScore) + ")");
 
             boolean isBetter = false;
             if (finalScore > maxScore) {
@@ -174,37 +185,54 @@ public class AnalystAssignmentService {
         return bestAnalyst;
     }
 
-    public double calculateAnalystScore(Incident incident, User analyst) {
+    public double calculateBonusScore(Incident incident, User analyst) {
         if (analyst == null) return 0.0;
-        boolean specMatch = doesSpecializationMatch(incident.getCategory(), analyst.getSpecialization());
-        double specScore = specMatch ? 100.0 : 0.0;
-
-        String priority = incident.getPriority();
+        double bonusScore = 0.0;
+        
         String level = analyst.getAnalystLevel() != null ? analyst.getAnalystLevel().toUpperCase() : "L1";
-        double levelScore = 50.0;
-        if ("CRITICAL".equalsIgnoreCase(priority) || "HIGH".equalsIgnoreCase(priority)) {
-            if ("L2".equals(level) || "L3".equals(level)) {
-                levelScore = 100.0;
-            }
+        if ("L3".equals(level)) {
+            bonusScore += 5.0;
+        } else if ("L2".equals(level)) {
+            bonusScore += 3.0;
         } else {
-            if ("L1".equals(level)) {
-                levelScore = 100.0;
-            } else {
-                levelScore = 70.0;
-            }
+            bonusScore += 1.0;
         }
 
-        long activeWorkload = incidentRepository.countActiveWorkload(analyst.getUsername());
-        double workloadScore = Math.max(0.0, 100.0 - (activeWorkload * 10.0));
+        double rawPerf = analyst.getPerformanceScore() != null ? analyst.getPerformanceScore() : 0.0;
+        if (rawPerf >= 85.0) {
+            bonusScore += 5.0;
+        } else if (rawPerf >= 70.0) {
+            bonusScore += 3.0;
+        }
 
         long similarResolved = resolvedIncidentRepository.findAll().stream()
                 .filter(r -> analyst.getUsername().equalsIgnoreCase(r.getAssignedAnalyst()) && incident.getCategory().equalsIgnoreCase(r.getCategory()))
                 .count();
-        double experienceScore = Math.min(100.0, similarResolved * 10.0);
+        if (similarResolved >= 5) {
+            bonusScore += 5.0;
+        } else if (similarResolved >= 1) {
+            bonusScore += 3.0;
+        }
 
-        double performanceScore = analyst.getPerformanceScore() != null ? analyst.getPerformanceScore() : 0.0;
+        return bonusScore;
+    }
 
-        return (0.40 * specScore) + (0.20 * workloadScore) + (0.20 * performanceScore) + (0.10 * levelScore) + (0.10 * experienceScore);
+    public double calculateAnalystScore(Incident incident, User analyst) {
+        if (analyst == null) return 0.0;
+        
+        boolean specMatch = doesSpecializationMatch(incident.getCategory(), analyst.getSpecialization());
+        double specScore = specMatch ? 40.0 : 0.0;
+
+        long activeWorkload = incidentRepository.countActiveWorkload(analyst.getUsername());
+        double workloadScore = Math.max(0.0, 25.0 - (activeWorkload * 5.0));
+
+        double rawPerf = analyst.getPerformanceScore() != null ? analyst.getPerformanceScore() : 0.0;
+        double performanceScore = (rawPerf / 100.0) * 25.0;
+
+        double bonusScore = calculateBonusScore(incident, analyst);
+
+        double totalScore = specScore + workloadScore + performanceScore + bonusScore;
+        return Math.min(100.0, Math.max(0.0, totalScore));
     }
 
     public Incident autoAssignWithAi(Incident incident) {
@@ -475,17 +503,19 @@ public class AnalystAssignmentService {
         String fullName = analyst.getFullName();
         
         long activeIncidents = incidentRepository.countActiveWorkload(analyst.getUsername());
-        double perfScore = analyst.getPerformanceScore() != null ? analyst.getPerformanceScore() : 0.0;
+        double rawPerf = analyst.getPerformanceScore() != null ? analyst.getPerformanceScore() : 0.0;
         
-        double specScore = doesSpecializationMatch(incident.getCategory(), analyst.getSpecialization()) ? 100.0 : 0.0;
-        double workloadScore = Math.max(0.0, 100.0 - (activeIncidents * 10.0));
+        double specScore = doesSpecializationMatch(incident.getCategory(), analyst.getSpecialization()) ? 40.0 : 0.0;
+        double workloadScore = Math.max(0.0, 25.0 - (activeIncidents * 5.0));
+        double perfScore = (rawPerf / 100.0) * 25.0;
+        double bonusScore = calculateBonusScore(incident, analyst);
         double assignmentScore = calculateAnalystScore(incident, analyst);
 
         incident.setAssignmentSpecScore(specScore);
         incident.setAssignmentWorkloadScore(workloadScore);
         incident.setAssignmentPerfScore(perfScore);
         incident.setAssignmentFinalScore(assignmentScore);
-        incident.setAssignmentReason(fullName + " achieved the highest Assignment Score among all eligible analysts.");
+        incident.setAssignmentReason(fullName + " assigned with score " + String.format("%.1f", assignmentScore) + "% (Spec: " + String.format("%.1f", specScore) + ", Workload: " + String.format("%.1f", workloadScore) + ", Perf: " + String.format("%.1f", perfScore) + ", Bonus: " + String.format("%.1f", bonusScore) + ")");
 
         incident.setAssignedTo(username);
         incident.setAssignedAnalystName(fullName);
@@ -526,28 +556,21 @@ public class AnalystAssignmentService {
                 decisionExplanation = "Manual assignment override performed by Administrator.";
             } else if (type.contains("Escalation")) {
                 decisionExplanation = "Incident escalated based on workload and tier level escalation parameters.";
+            } else if ("AUTO_ASSIGNED".equals(type)) {
+                decisionExplanation = "AI confidence above 80% threshold.";
             }
         }
 
-        String detailedReason;
-        if ("AUTO_ASSIGNED".equals(type)) {
-            detailedReason = "AI Confidence Score:\n"
-                + (incident.getRoutingConfidence() != null ? incident.getRoutingConfidence() + "%" : "N/A") + "\n\n"
-                + "Decision:\n"
-                + "AUTO_ASSIGNED\n\n"
-                + "Reason:\n"
-                + "AI confidence above 80% threshold.";
-        } else {
-            detailedReason = actionHeader + "\n"
-                + "AI Confidence Score: " + (incident.getRoutingConfidence() != null ? incident.getRoutingConfidence() + "%" : "N/A") + "\n"
-                + "Assignment Decision: " + (type.contains("Manual") || type.contains("Override") ? "Manual Assignment" : "Automatic Assignment") + "\n"
-                + "Specialization Match : " + String.format("%.0f", specScore) + "\n"
-                + "Workload Score : " + String.format("%.0f", workloadScore) + "\n"
-                + "Performance Score : " + String.format("%.1f", perfScore) + "\n"
-                + "Final Assignment Score : " + String.format("%.2f", assignmentScore) + "\n"
-                + "Reason:\n"
-                + decisionExplanation;
-        }
+        String detailedReason = actionHeader + "\n"
+            + "AI Confidence Score: " + (incident.getRoutingConfidence() != null ? incident.getRoutingConfidence() + "%" : "N/A") + "\n"
+            + "Assignment Decision: " + ("AUTO_ASSIGNED".equals(type) ? "Automatic AI Assignment" : (type.contains("Manual") || type.contains("Override") ? "Manual Assignment" : "Automatic Assignment")) + "\n"
+            + "Specialization Match : " + String.format("%.1f", specScore) + "\n"
+            + "Workload Score : " + String.format("%.1f", workloadScore) + "\n"
+            + "Performance Score : " + String.format("%.1f", perfScore) + "\n"
+            + "Bonus Score : " + String.format("%.1f", bonusScore) + "\n"
+            + "Final Assignment Score : " + String.format("%.2f", assignmentScore) + "\n"
+            + "Reason:\n"
+            + decisionExplanation;
 
         // Save Assignment History
         AssignmentHistory ah = new AssignmentHistory();
