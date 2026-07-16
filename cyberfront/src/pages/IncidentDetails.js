@@ -189,6 +189,10 @@ function IncidentDetails() {
             };
             setIncident(data);
             currentIncidentData = data;
+            setNotes(data.analystNotes || "");
+            setResolution(data.resolutionSummary || "");
+            setStatus(data.status || "");
+            setAdminRemarks(data.adminRemarks || "");
           }
         }
       }
@@ -203,76 +207,38 @@ function IncidentDetails() {
         }
       }
 
-      // Fetch reporter user details
-      if (currentIncidentData && currentIncidentData.reportedBy) {
-        try {
-          const resUser = await fetch(`${window.API_BASE_URL}/api/users/username/${currentIncidentData.reportedBy}`, { headers });
-          if (resUser.ok) {
-            const userData = await resUser.json();
-            setReporterUser(userData);
-          }
-        } catch (uErr) {
-          console.error("Error loading reporter details:", uErr);
-        }
-      }
-      
-      // Fetch assigned analyst user details
-      if (currentIncidentData && currentIncidentData.assignedTo) {
-        try {
-          const resUser = await fetch(`${window.API_BASE_URL}/api/users/username/${currentIncidentData.assignedTo}`, { headers });
-          if (resUser.ok) {
-            const userData = await resUser.json();
-            setAssignedUser(userData);
-          }
-        } catch (aErr) {
-          console.error("Error loading assigned analyst details:", aErr);
-        }
-      }
+      // Parallelize secondary fetches
+      if (currentIncidentData) {
+        const fetchPromises = [
+          // 0: Reporter Details
+          currentIncidentData.reportedBy
+            ? fetch(`${window.API_BASE_URL}/api/users/username/${currentIncidentData.reportedBy}`, { headers }).then(r => r.ok ? r.json() : null).catch(() => null)
+            : Promise.resolve(null),
+          // 1: Assigned Analyst Details
+          currentIncidentData.assignedTo
+            ? fetch(`${window.API_BASE_URL}/api/users/username/${currentIncidentData.assignedTo}`, { headers }).then(r => r.ok ? r.json() : null).catch(() => null)
+            : Promise.resolve(null),
+          // 2: Audit Logs
+          fetch(`${window.API_BASE_URL}/api/audit/incident/${id}`, { headers }).then(r => r.ok ? r.json() : []).catch(() => []),
+          // 3: Attachments
+          fetch(`${window.API_BASE_URL}/api/incidents/${id}/attachments`, { headers }).then(r => r.ok ? r.json() : []).catch(() => []),
+          // 4: Escalation History
+          fetch(`${window.API_BASE_URL}/api/incidents/${id}/escalations`, { headers }).then(r => r.ok ? r.json() : []).catch(() => []),
+          // 5: Assignment History
+          fetch(`${window.API_BASE_URL}/api/incidents/${id}/assignments`, { headers }).then(r => r.ok ? r.json() : []).catch(() => []),
+          // 6: Users list
+          fetch(window.API_BASE_URL + "/api/users", { headers }).then(r => r.ok ? r.json() : []).catch(() => [])
+        ];
 
-      // Fetch Incident Audit logs for timeline
-      try {
-        const resAudit = await fetch(`${window.API_BASE_URL}/api/audit/incident/${id}`, { headers });
-        if (resAudit.ok) {
-          const audits = await resAudit.json();
-          setTimelineEvents(audits || []);
-        }
-      } catch (aErr) {
-        console.error("Error loading timeline audits:", aErr);
-      }
+        const [reporter, assignee, audits, atts, escs, assigns, usersData] = await Promise.all(fetchPromises);
 
-      // Fetch Attachments
-      const resAtt = await fetch(`${window.API_BASE_URL}/api/incidents/${id}/attachments`, { headers });
-      if (resAtt.ok) {
-        const atts = await resAtt.json();
-        setAttachments(atts || []);
-      }
-
-      // Fetch Escalation History
-      const resEsc = await fetch(`${window.API_BASE_URL}/api/incidents/${id}/escalations`, { headers });
-      if (resEsc.ok) {
-        const escs = await resEsc.json();
-        setEscalations(escs || []);
-      }
-
-      // Fetch Assignment History
-      try {
-        const resAssign = await fetch(`${window.API_BASE_URL}/api/incidents/${id}/assignments`, { headers });
-        if (resAssign.ok) {
-          const assigns = await resAssign.json();
-          setAssignments(assigns || []);
-        }
-      } catch (aErr) {
-        console.error("Error loading assignment history:", aErr);
-      }
-
-      try {
-        const resUsers = await fetch(window.API_BASE_URL + "/api/users", { headers });
-        if (resUsers.ok) {
-          const usersData = await resUsers.json();
-          setUsersList(usersData || []);
-        }
-      } catch (uErr) {
-        console.error("Error loading users list:", uErr);
+        if (reporter) setReporterUser(reporter);
+        if (assignee) setAssignedUser(assignee);
+        setTimelineEvents(audits);
+        setAttachments(atts);
+        setEscalations(escs);
+        setAssignments(assigns);
+        setUsersList(usersData);
       }
 
     } catch (err) {
@@ -285,16 +251,14 @@ function IncidentDetails() {
   const fetchAllIncidents = async () => {
     try {
       const headers = { "Authorization": `Bearer ${localStorage.getItem("token")}` };
-      const resActive = await fetch(window.API_BASE_URL + "/api/incidents", { headers });
+      const [resActive, resResolved] = await Promise.all([
+        fetch(window.API_BASE_URL + "/api/incidents", { headers }),
+        fetch(window.API_BASE_URL + "/api/incidents/resolved", { headers })
+      ]);
       let active = [];
-      if (resActive.ok) {
-        active = await resActive.json();
-      }
-      const resResolved = await fetch(window.API_BASE_URL + "/api/incidents/resolved", { headers });
+      if (resActive.ok) active = await resActive.json();
       let resolved = [];
-      if (resResolved.ok) {
-        resolved = await resResolved.json();
-      }
+      if (resResolved.ok) resolved = await resResolved.json();
       const standardizedResolved = resolved.map(r => ({
         ...r,
         id: r.incidentId,

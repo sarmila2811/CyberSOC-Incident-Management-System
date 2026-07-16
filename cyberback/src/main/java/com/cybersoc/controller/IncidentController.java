@@ -1137,6 +1137,7 @@ public class IncidentController {
 
     // ================= APPROVE (ARCHIVE) =================
     @PutMapping("/{id}/approve")
+    @org.springframework.transaction.annotation.Transactional
     public Incident approveIncident(@PathVariable Long id, @RequestBody(required = false) Map<String, String> req) {
         Incident incident = service.getByIdOrNull(id);
         if (incident == null) {
@@ -1259,6 +1260,7 @@ public class IncidentController {
 
     // ================= REJECT =================
     @PutMapping("/{id}/reject")
+    @org.springframework.transaction.annotation.Transactional
     public Incident rejectIncident(@PathVariable Long id, @RequestBody(required = false) Map<String, String> req) {
         Incident incident = service.getByIdOrNull(id);
         if (incident == null) {
