@@ -532,7 +532,7 @@ public class IncidentController {
 
             double performanceScore = analyst.getPerformanceScore() != null ? analyst.getPerformanceScore() : 0.0;
 
-            double finalScore = (0.40 * specScore) + (0.20 * workloadScore) + (0.20 * performanceScore) + (0.10 * levelScore) + (0.10 * experienceScore);
+            double finalScore = assignmentService.calculateAnalystScore(incident, analyst);
 
             boolean isBetter = false;
             if (finalScore > maxScore) {
