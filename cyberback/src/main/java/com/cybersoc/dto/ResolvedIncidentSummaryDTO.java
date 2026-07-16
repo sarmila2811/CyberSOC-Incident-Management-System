@@ -13,6 +13,7 @@ public class ResolvedIncidentSummaryDTO {
     private String reportedBy;
     private String timestamp;
     private String slaStatus;
+    private String resolutionSummary;
 
     public ResolvedIncidentSummaryDTO(ResolvedIncident resolved) {
         this.id = resolved.getId();
@@ -25,6 +26,7 @@ public class ResolvedIncidentSummaryDTO {
         this.reportedBy = resolved.getReportedBy();
         this.timestamp = resolved.getTimestamp();
         this.slaStatus = resolved.getSlaStatus();
+        this.resolutionSummary = resolved.getResolutionSummary();
     }
 
     public Long getId() {
@@ -105,5 +107,13 @@ public class ResolvedIncidentSummaryDTO {
 
     public void setSlaStatus(String slaStatus) {
         this.slaStatus = slaStatus;
+    }
+
+    public String getResolutionSummary() {
+        return resolutionSummary;
+    }
+
+    public void setResolutionSummary(String resolutionSummary) {
+        this.resolutionSummary = resolutionSummary;
     }
 }
