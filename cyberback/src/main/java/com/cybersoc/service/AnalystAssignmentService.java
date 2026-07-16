@@ -244,15 +244,60 @@ public class AnalystAssignmentService {
         return bestAnalyst;
     }
 
+    public double calculateAnalystScore(Incident incident, User analyst) {
+        if (analyst == null) return 0.0;
+        boolean specMatch = doesSpecializationMatch(incident.getCategory(), analyst.getSpecialization());
+        double specScore = specMatch ? 100.0 : 0.0;
+
+        String priority = incident.getPriority();
+        String level = analyst.getAnalystLevel() != null ? analyst.getAnalystLevel().toUpperCase() : "L1";
+        double levelScore = 50.0;
+        if ("CRITICAL".equalsIgnoreCase(priority) || "HIGH".equalsIgnoreCase(priority)) {
+            if ("L2".equals(level) || "L3".equals(level)) {
+                levelScore = 100.0;
+            }
+        } else {
+            if ("L1".equals(level)) {
+                levelScore = 100.0;
+            } else {
+                levelScore = 70.0;
+            }
+        }
+
+        long activeWorkload = incidentRepository.countActiveWorkload(analyst.getUsername());
+        double workloadScore = Math.max(0.0, 100.0 - (activeWorkload * 10.0));
+
+        long similarResolved = resolvedIncidentRepository.findAll().stream()
+                .filter(r -> analyst.getUsername().equalsIgnoreCase(r.getAssignedAnalyst()) && incident.getCategory().equalsIgnoreCase(r.getCategory()))
+                .count();
+        double experienceScore = Math.min(100.0, similarResolved * 10.0);
+
+        double performanceScore = analyst.getPerformanceScore() != null ? analyst.getPerformanceScore() : 0.0;
+
+        return (0.40 * specScore) + (0.20 * workloadScore) + (0.20 * performanceScore) + (0.10 * levelScore) + (0.10 * experienceScore);
+    }
+
     public Incident autoAssignWithAi(Incident incident) {
         User recommended = getAiRecommendedAnalyst(incident);
-        
-        // Also calculate routing confidence
-        int confidence = calculateRoutingConfidence(incident, recommended);
+        double aiMatchScore = calculateAnalystScore(incident, recommended);
+        int confidence = (int) Math.round(aiMatchScore);
         incident.setRoutingConfidence(confidence);
+        incident.setAiAssistantConfidenceScore(String.valueOf(confidence));
 
+        boolean isCritical = "CRITICAL".equalsIgnoreCase(incident.getPriority());
+        boolean hasL2L3Validation = false;
         if (recommended != null) {
-            String reasonText = "Incident automatically assigned by AI System to " + recommended.getFullName() + ". Matches analyst specialization for category: " + incident.getCategory();
+            String level = recommended.getAnalystLevel() != null ? recommended.getAnalystLevel().toUpperCase() : "L1";
+            if ("L2".equals(level) || "L3".equals(level)) {
+                hasL2L3Validation = true;
+            }
+        }
+
+        // Auto assignment criteria: Match Score >= 80%, analyst present, and Critical priority requires L2/L3 analyst
+        boolean canAutoAssign = (aiMatchScore >= 80.0) && (recommended != null) && (!isCritical || hasL2L3Validation);
+
+        if (canAutoAssign) {
+            String reasonText = "Automatically assigned because AI confidence score exceeded 80% threshold.";
             
             // Assign to analyst
             assignToAnalyst(incident, recommended, recommended.getAnalystLevel() != null ? recommended.getAnalystLevel() : "L1", 
@@ -271,27 +316,45 @@ public class AnalystAssignmentService {
                 "Unassigned",
                 recommended.getUsername(),
                 "127.0.0.1",
-                "AI automatically assigned " + recommended.getFullName() + " based on recommendation suitability."
+                "Automatically assigned because AI confidence score exceeded 80% threshold. Recommended: " + recommended.getFullName() + " (Score: " + confidence + "%)."
             );
             return saved;
         } else {
-            // Keep incident in PENDING_ASSIGNMENT
+            // Keep incident unassigned and move to Admin Assignment Review Queue
             incident.setStatus("PENDING_ASSIGNMENT");
             incident.setAssignedTo(null);
             incident.setAssignedAnalystName(null);
             incident.setUpdatedTime(now());
+            
+            String failReason = "AI confidence below 80% threshold.";
+            if (isCritical && !hasL2L3Validation && recommended != null) {
+                failReason = "Critical incident requires L2/L3 analyst validation.";
+            } else if (recommended == null) {
+                failReason = "No active analysts available in SOC roster.";
+            }
+            
+            incident.setAnalystNotes("AI Recommendation: " + (recommended != null ? recommended.getFullName() : "None") + " (" + confidence + "%). Result: Pending Admin Review. Reason: " + failReason);
+            
             Incident saved = incidentRepository.save(incident);
             
             auditService.log(
                 "AI System",
-                "PENDING ASSIGNMENT - NO ANALYST FOUND",
+                "PENDING ASSIGNMENT - LOW CONFIDENCE",
                 String.valueOf(saved.getId()),
                 saved.getTitle(),
                 "Unassigned",
                 "None",
                 "127.0.0.1",
-                "AI auto-assignment failed: No active analysts available in roster."
+                "Incident routed to Admin Review: " + failReason + " (Score: " + confidence + "%)."
             );
+            
+            // Notify Admin that manual assignment is required due to low AI confidence
+            notificationService.send(new Notification(
+                "PENDING_ASSIGNMENT", 
+                "Incident INC-" + String.format("%06d", saved.getId()) + " requires Admin Review: " + failReason + " (Score: " + confidence + "%).", 
+                "admin"
+            ));
+            
             return saved;
         }
     }

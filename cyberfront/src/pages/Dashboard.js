@@ -60,15 +60,17 @@ function Dashboard() {
   // eslint-disable-next-line no-unused-vars
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
-
+  const [secondaryLoaded, setSecondaryLoaded] = useState(false);
+ 
   // Date Filtering States
   const [dateFilter, setDateFilter] = useState("All"); // All, Today, Week, Month, Custom
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
-
+ 
   const fetchDashboardData = async (filterType = dateFilter, start = startDate, end = endDate) => {
     try {
       setLoading(true);
+      setSecondaryLoaded(false);
       
       let statsUrl = window.API_BASE_URL + "/api/reports/statistics";
       const params = [];
@@ -88,59 +90,40 @@ function Dashboard() {
       if (params.length > 0) {
         statsUrl += "?" + params.join("&");
       }
-
+ 
       const headers = { "Authorization": `Bearer ${localStorage.getItem("token")}` };
-
-      // Fetch Statistics
-      const resStats = await fetch(statsUrl, { headers });
+ 
+      // Phase 1: Parallel fetch primary stats and user roster for KPI cards
+      const [resStats, resUsersList] = await Promise.all([
+        fetch(statsUrl, { headers }),
+        fetch(window.API_BASE_URL + "/api/users", { headers })
+      ]);
+ 
       let statsData = null;
       if (resStats.ok) {
         statsData = await resStats.json();
         setStats(statsData);
       }
-
-      // Fetch User Roster to lookup Analyst Level
-      const resUsersList = await fetch(window.API_BASE_URL + "/api/users", { headers });
+ 
       let usersList = [];
       if (resUsersList.ok) {
         usersList = await resUsersList.json();
         setUsers(usersList);
       }
-
-      // Fetch Recent Incidents
-      const resInc = await fetch(window.API_BASE_URL + "/api/incidents", { headers });
-      let incData = [];
-      if (resInc.ok) {
-        incData = await resInc.json();
-        if (role === "EMPLOYEE") {
-          incData = incData.filter(i => currentUser.username && currentUser.username.toLowerCase() === (i.reportedBy || "").toLowerCase());
-        } else if (role === "ANALYST") {
-          incData = incData.filter(i => currentUser.username && currentUser.username.toLowerCase() === (i.assignedTo || "").toLowerCase());
-        }
-        setIncidents(incData.slice(0, 5));
-      }
-
-      // Fetch Audit Logs for Recent Activity
-      const resAudit = await fetch(window.API_BASE_URL + "/api/audit", { headers });
-      if (resAudit.ok) {
-        let auditData = await resAudit.json();
-        if (role === "EMPLOYEE") {
-          auditData = auditData.filter(a => a.user === currentUser.username || (a.action === "INCIDENT REPORTED" && a.user === currentUser.username));
-        } else if (role === "ANALYST") {
-          auditData = auditData.filter(a => a.user === currentUser.username || (a.action === "INCIDENT ASSIGNED" && a.newValue === currentUser.username));
-        }
-        setActivities(auditData.slice(0, 6));
-      }
-
-      // Fetch Recent Notifications
-      if (currentUser.username) {
-        const resNotif = await fetch(`${window.API_BASE_URL}/api/notifications/${currentUser.username}`, { headers });
-        if (resNotif.ok) {
-          const notifData = await resNotif.json();
-          setNotifications(notifData.slice(0, 5));
+ 
+      // If ADMIN, fetch resolved to compute resolution rates for summary card
+      let resolvedList = [];
+      if (role === "ADMIN") {
+        try {
+          const resRes = await fetch(window.API_BASE_URL + "/api/incidents/resolved", { headers });
+          if (resRes.ok) {
+            resolvedList = await resRes.json();
+          }
+        } catch (e) {
+          console.error("Failed to fetch resolved incidents for admin stats:", e);
         }
       }
-
+ 
       // Calculate Admin Stats
       if (role === "ADMIN" && statsData && usersList.length > 0) {
         const employeesList = usersList.filter(u => u.role && u.role.toLowerCase() === "employee");
@@ -148,31 +131,26 @@ function Dashboard() {
         const adminsList = usersList.filter(u => u.role && u.role.toLowerCase() === "admin");
         const activeList = usersList.filter(u => u.status && u.status.toLowerCase() === "active");
         const inactiveList = usersList.filter(u => u.status && u.status.toLowerCase() === "inactive");
-
-        // Fetch resolved to compute Average Resolution Time
-        const resRes = await fetch(window.API_BASE_URL + "/api/incidents/resolved", { headers });
+ 
         let avgResTime = "N/A";
-        if (resRes.ok) {
-          const resolvedList = await resRes.json();
-          let totalMs = 0;
-          let count = 0;
-          resolvedList.forEach(r => {
-            if (r.resolvedTime && r.timestamp) {
-              const start = new Date(r.timestamp);
-              const end = new Date(r.resolvedTime);
-              const diff = end - start;
-              if (diff > 0) {
-                totalMs += diff;
-                count++;
-              }
+        let totalMs = 0;
+        let count = 0;
+        resolvedList.forEach(r => {
+          if (r.resolvedTime && r.timestamp) {
+            const start = new Date(r.timestamp);
+            const end = new Date(r.resolvedTime);
+            const diff = end - start;
+            if (diff > 0) {
+              totalMs += diff;
+              count++;
             }
-          });
-          if (count > 0) {
-            const avgHrs = (totalMs / (1000 * 60 * 60 * count)).toFixed(1);
-            avgResTime = `${avgHrs} Hours`;
           }
+        });
+        if (count > 0) {
+          const avgHrs = (totalMs / (1000 * 60 * 60 * count)).toFixed(1);
+          avgResTime = `${avgHrs} Hours`;
         }
-
+ 
         setAdminStats({
           totalEmployees: employeesList.length,
           totalAnalysts: analystsList.length,
@@ -187,14 +165,53 @@ function Dashboard() {
           avgResolutionTime: avgResTime
         });
       }
-
+ 
+      // Render summary cards instantly by stopping the main skeleton loading
+      setLoading(false);
+ 
+      // Phase 2: Asynchronously fetch heavy list data and charts in parallel
+      const [resInc, resAudit, resNotif] = await Promise.all([
+        fetch(window.API_BASE_URL + "/api/incidents", { headers }),
+        fetch(window.API_BASE_URL + "/api/audit", { headers }),
+        currentUser.username
+          ? fetch(`${window.API_BASE_URL}/api/notifications/${currentUser.username}`, { headers })
+          : Promise.resolve({ ok: false })
+      ]);
+ 
+      if (resInc.ok) {
+        let incData = await resInc.json();
+        if (role === "EMPLOYEE") {
+          incData = incData.filter(i => currentUser.username && currentUser.username.toLowerCase() === (i.reportedBy || "").toLowerCase());
+        } else if (role === "ANALYST") {
+          incData = incData.filter(i => currentUser.username && currentUser.username.toLowerCase() === (i.assignedTo || "").toLowerCase());
+        }
+        setIncidents(incData.slice(0, 5));
+      }
+ 
+      if (resAudit.ok) {
+        let auditData = await resAudit.json();
+        if (role === "EMPLOYEE") {
+          auditData = auditData.filter(a => a.user === currentUser.username || (a.action === "INCIDENT REPORTED" && a.user === currentUser.username));
+        } else if (role === "ANALYST") {
+          auditData = auditData.filter(a => a.user === currentUser.username || (a.action === "INCIDENT ASSIGNED" && a.newValue === currentUser.username));
+        }
+        setActivities(auditData.slice(0, 6));
+      }
+ 
+      if (resNotif.ok) {
+        const notifData = await resNotif.json();
+        setNotifications(notifData.slice(0, 5));
+      }
+ 
+      setSecondaryLoaded(true);
+ 
     } catch (err) {
       console.error("Dashboard loading error:", err);
-    } finally {
       setLoading(false);
+      setSecondaryLoaded(true);
     }
   };
-
+ 
   useEffect(() => {
     if (!currentUser.username) return;
     fetchDashboardData();
@@ -764,154 +781,178 @@ function Dashboard() {
                 </div>
               )}
 
-              {/* Charts Panel */}
-              <div className="row g-4 mb-4">
-                {/* Priority Pie */}
-                <div className="col-lg-4 col-md-12">
-                  <div className="soc-card h-100 shadow-sm">
-                    <div className="soc-card-title fw-bold mb-3">Priority Breakdown</div>
-                    <div style={{ height: "280px", width: "100%" }}>
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie
-                            data={priorityData.filter(d => d.value > 0)}
-                            cx="50%"
-                            cy="50%"
-                            innerRadius={55}
-                            outerRadius={75}
-                            paddingAngle={4}
-                            dataKey="value"
-                            style={{ cursor: "pointer" }}
-                            onClick={(data) => {
-                              if (data && data.name) {
-                                navigate("/incidents", { state: { priority: data.name } });
-                              }
-                            }}
-                          >
-                            {priorityData.map((entry, index) => (
-                              <Cell key={`cell-${index}`} fill={PRIORITY_COLORS[entry.name] || "#8884d8"} />
-                            ))}
-                          </Pie>
-                          <Tooltip formatter={(value) => [`${value} Incidents`, "Volume"]} />
-                          <Legend verticalAlign="bottom" height={36} />
-                        </PieChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Monthly trends */}
-                <div className="col-lg-5 col-md-12">
-                  <div className="soc-card h-100 shadow-sm">
-                    <div className="soc-card-title fw-bold mb-3">Incident Flow Trend</div>
-                    <div style={{ height: "280px", width: "100%" }}>
-                      <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart 
-                          data={trendData}
-                          style={{ cursor: "pointer" }}
-                          onClick={() => navigate("/incidents", { state: {} })}
-                        >
-                          <defs>
-                            <linearGradient id="colorFlow" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="5%" stopColor="#0d6efd" stopOpacity={0.2}/>
-                              <stop offset="95%" stopColor="#0d6efd" stopOpacity={0}/>
-                            </linearGradient>
-                          </defs>
-                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                          <XAxis dataKey="month" stroke="#94a3b8" />
-                          <YAxis stroke="#94a3b8" />
-                          <Tooltip />
-                          <Area type="monotone" dataKey="count" stroke="#0d6efd" strokeWidth={2.5} fillOpacity={1} fill="url(#colorFlow)" />
-                        </AreaChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Threat score */}
-                <div className="col-lg-3 col-md-12">
-                  <div className="soc-card h-100 threat-score-radial bg-primary text-white shadow-sm d-flex flex-column justify-content-center align-items-center text-center p-4 rounded">
-                    <h5 className="text-white opacity-75 mb-1" style={{ fontSize: "14px" }}>Threat Score</h5>
-                    <div style={{ fontSize: "64px", fontWeight: "800", letterSpacing: "-2px" }}>
-                      {Math.min(100, Math.max(0, stats.openIncidents * 10 + stats.escalated * 15))}
-                    </div>
-                    <span className="badge bg-white text-primary px-3 py-1 rounded-pill mb-3 fw-bold" style={{ fontSize: "11px" }}>
-                      {stats.escalated > 0 ? "CRITICAL ALERT" : "STABLE"}
-                    </span>
-                    <small className="opacity-75" style={{ fontSize: "11px" }}>
-                      Based on active, unassigned, and escalated incidents.
-                    </small>
-                  </div>
-                </div>
-              </div>
-
-              {/* Specialization Breakdown Chart */}
-              <div className="row g-4 mb-4">
-                <div className="col-md-12">
-                  <div className="soc-card shadow-sm">
-                    <div className="soc-card-title fw-bold mb-3">Threat Categories Distribution</div>
-                    <div style={{ height: "280px", width: "100%" }}>
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={categoryData}>
-                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                          <XAxis dataKey="category" stroke="#94a3b8" />
-                          <YAxis stroke="#94a3b8" />
-                          <Tooltip />
-                          <Bar 
-                            dataKey="count" 
-                            fill="#0d6efd" 
-                            radius={[4, 4, 0, 0]} 
-                            barSize={40}
-                            style={{ cursor: "pointer" }}
-                            onClick={(data) => {
-                              if (data && data.category) {
-                                navigate("/incidents", { state: { category: data.category } });
-                              }
-                            }}
-                          />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Data Lists */}
-              {role !== "EMPLOYEE" && (
+              {/* Charts Panel & Lists (Lazy Loaded Asynchronously) */}
+              {!secondaryLoaded ? (
                 <div className="row g-4 mb-4">
-                  {/* Analyst Workload Distribution */}
-                  <div className="col-md-12">
-                    <div className="soc-card shadow-sm h-100">
-                      <div className="soc-card-title fw-bold mb-3">Analyst Workload Distribution</div>
-                      <div className="row g-3">
-                        {stats.analystPerformance.length === 0 ? (
-                          <p className="text-muted text-center m-0 py-3 w-100">No analyst accounts found.</p>
-                        ) : (
-                          stats.analystPerformance.map((perf, i) => (
-                            <div key={i} className="col-md-6 col-lg-4">
-                              <div className="d-flex align-items-center justify-content-between p-3 rounded border bg-light h-100 hover-card shadow-sm">
-                                <div>
-                                  <strong className="text-dark d-block" style={{ fontSize: "14px" }}>{perf.fullName}</strong>
-                                  <small className="text-muted text-uppercase" style={{ fontSize: "11px" }}>
-                                    {perf.specialization || "Generalist"} ({perf.level} Analyst)
-                                  </small>
-                                </div>
-                                <div className="text-end">
-                                  <span className="badge bg-primary text-white d-block mb-1" style={{ fontSize: "11px" }}>
-                                    {perf.activeCount} Active
-                                  </span>
-                                  <small className="text-success fw-semibold" style={{ fontSize: "11px" }}>
-                                    {perf.resolvedCount} Resolved
-                                  </small>
-                                </div>
-                              </div>
-                            </div>
-                          ))
-                        )}
+                  <div className="col-md-8">
+                    <div className="soc-card skeleton-loader d-flex align-items-center justify-content-center" style={{ height: "320px" }}>
+                      <div className="text-muted text-center">
+                        <FaHourglassHalf className="fa-spin mb-2" style={{ fontSize: "24px" }} />
+                        <p className="m-0 fw-semibold">Loading Threat Metrics & Analytics...</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="col-md-4">
+                    <div className="soc-card skeleton-loader d-flex align-items-center justify-content-center" style={{ height: "320px" }}>
+                      <div className="text-muted text-center">
+                        <FaHourglassHalf className="fa-spin mb-2" style={{ fontSize: "24px" }} />
+                        <p className="m-0 fw-semibold">Loading Live Activity Feed...</p>
                       </div>
                     </div>
                   </div>
                 </div>
+              ) : (
+                <>
+                  {/* Charts Panel */}
+                  <div className="row g-4 mb-4">
+                    {/* Priority Pie */}
+                    <div className="col-lg-4 col-md-12">
+                      <div className="soc-card h-100 shadow-sm">
+                        <div className="soc-card-title fw-bold mb-3">Priority Breakdown</div>
+                        <div style={{ height: "280px", width: "100%" }}>
+                          <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                              <Pie
+                                data={priorityData.filter(d => d.value > 0)}
+                                cx="50%"
+                                cy="50%"
+                                innerRadius={55}
+                                outerRadius={75}
+                                paddingAngle={4}
+                                dataKey="value"
+                                style={{ cursor: "pointer" }}
+                                onClick={(data) => {
+                                  if (data && data.name) {
+                                    navigate("/incidents", { state: { priority: data.name } });
+                                  }
+                                }}
+                              >
+                                {priorityData.map((entry, index) => (
+                                  <Cell key={`cell-${index}`} fill={PRIORITY_COLORS[entry.name] || "#8884d8"} />
+                                ))}
+                              </Pie>
+                              <Tooltip formatter={(value) => [`${value} Incidents`, "Volume"]} />
+                              <Legend verticalAlign="bottom" height={36} />
+                            </PieChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Monthly trends */}
+                    <div className="col-lg-5 col-md-12">
+                      <div className="soc-card h-100 shadow-sm">
+                        <div className="soc-card-title fw-bold mb-3">Incident Flow Trend</div>
+                        <div style={{ height: "280px", width: "100%" }}>
+                          <ResponsiveContainer width="100%" height="100%">
+                            <AreaChart 
+                              data={trendData}
+                              style={{ cursor: "pointer" }}
+                              onClick={() => navigate("/incidents", { state: {} })}
+                            >
+                              <defs>
+                                <linearGradient id="colorFlow" x1="0" y1="0" x2="0" y2="1">
+                                  <stop offset="5%" stopColor="#0d6efd" stopOpacity={0.2}/>
+                                  <stop offset="95%" stopColor="#0d6efd" stopOpacity={0}/>
+                                </linearGradient>
+                              </defs>
+                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                              <XAxis dataKey="month" stroke="#94a3b8" />
+                              <YAxis stroke="#94a3b8" />
+                              <Tooltip />
+                              <Area type="monotone" dataKey="count" stroke="#0d6efd" strokeWidth={2.5} fillOpacity={1} fill="url(#colorFlow)" />
+                            </AreaChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Threat score */}
+                    <div className="col-lg-3 col-md-12">
+                      <div className="soc-card h-100 threat-score-radial bg-primary text-white shadow-sm d-flex flex-column justify-content-center align-items-center text-center p-4 rounded">
+                        <h5 className="text-white opacity-75 mb-1" style={{ fontSize: "14px" }}>Threat Score</h5>
+                        <div style={{ fontSize: "64px", fontWeight: "800", letterSpacing: "-2px" }}>
+                          {Math.min(100, Math.max(0, stats.openIncidents * 10 + stats.escalated * 15))}
+                        </div>
+                        <span className="badge bg-white text-primary px-3 py-1 rounded-pill mb-3 fw-bold" style={{ fontSize: "11px" }}>
+                          {stats.escalated > 0 ? "CRITICAL ALERT" : "STABLE"}
+                        </span>
+                        <small className="opacity-75" style={{ fontSize: "11px" }}>
+                          Based on active, unassigned, and escalated incidents.
+                        </small>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Specialization Breakdown Chart */}
+                  <div className="row g-4 mb-4">
+                    <div className="col-md-12">
+                      <div className="soc-card shadow-sm">
+                        <div className="soc-card-title fw-bold mb-3">Threat Categories Distribution</div>
+                        <div style={{ height: "280px", width: "100%" }}>
+                          <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={categoryData}>
+                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                              <XAxis dataKey="category" stroke="#94a3b8" />
+                              <YAxis stroke="#94a3b8" />
+                              <Tooltip />
+                              <Bar 
+                                dataKey="count" 
+                                fill="#0d6efd" 
+                                radius={[4, 4, 0, 0]} 
+                                barSize={40}
+                                style={{ cursor: "pointer" }}
+                                onClick={(data) => {
+                                  if (data && data.category) {
+                                    navigate("/incidents", { state: { category: data.category } });
+                                  }
+                                }}
+                              />
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Data Lists */}
+                  {role !== "EMPLOYEE" && (
+                    <div className="row g-4 mb-4">
+                      {/* Analyst Workload Distribution */}
+                      <div className="col-md-12">
+                        <div className="soc-card shadow-sm h-100">
+                          <div className="soc-card-title fw-bold mb-3">Analyst Workload Distribution</div>
+                          <div className="row g-3">
+                            {stats.analystPerformance.length === 0 ? (
+                              <p className="text-muted text-center m-0 py-3 w-100">No analyst accounts found.</p>
+                            ) : (
+                              stats.analystPerformance.map((perf, i) => (
+                                <div key={i} className="col-md-6 col-lg-4">
+                                  <div className="d-flex align-items-center justify-content-between p-3 rounded border bg-light h-100 hover-card shadow-sm">
+                                    <div>
+                                      <strong className="text-dark d-block" style={{ fontSize: "14px" }}>{perf.fullName}</strong>
+                                      <small className="text-muted text-uppercase" style={{ fontSize: "11px" }}>
+                                        {perf.specialization || "Generalist"} ({perf.level} Analyst)
+                                      </small>
+                                    </div>
+                                    <div className="text-end">
+                                      <span className="badge bg-primary text-white d-block mb-1" style={{ fontSize: "11px" }}>
+                                        {perf.activeCount} Active
+                                      </span>
+                                      <small className="text-success fw-semibold" style={{ fontSize: "11px" }}>
+                                        {perf.resolvedCount} Resolved
+                                      </small>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </>
           )}
