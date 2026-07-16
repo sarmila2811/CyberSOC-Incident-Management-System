@@ -81,7 +81,13 @@ public class AuthController {
             String otp = otpService.generateOtp(email);
             System.out.println("[OTP Workflow] Generated OTP: " + otp);
 
-            emailService.sendOtp(email, otp);
+            boolean sent = emailService.sendOtp(email, otp);
+            if (!sent) {
+                return ResponseEntity.status(400).body(Map.of(
+                    "success", false,
+                    "message", "Unable to send OTP email. SMTP service failure or timeout occurred. Please check your credentials or try again later."
+                ));
+            }
 
             return ResponseEntity.ok(Map.of(
                 "success", true,
@@ -92,7 +98,7 @@ public class AuthController {
             e.printStackTrace();
             return ResponseEntity.status(500).body(Map.of(
                 "success", false,
-                "message", "Unable to send OTP email.",
+                "message", "Unable to send OTP email due to backend system exception.",
                 "reason", e.getMessage() != null ? e.getMessage() : e.toString()
             ));
         }
@@ -128,7 +134,10 @@ public class AuthController {
 
         try {
             String otp = otpService.generateOtp(email);
-            emailService.sendPasswordResetOtp(email, otp);
+            boolean sent = emailService.sendPasswordResetOtp(email, otp);
+            if (!sent) {
+                return ResponseEntity.status(400).body(Map.of("message", "Unable to send reset OTP email. SMTP service failure or timeout occurred. Please try again later."));
+            }
             auditService.log(userOpt.get().getUsername(), "PASSWORD RESET REQUESTED", null, null, null, "OTP verification sent to " + email);
             return ResponseEntity.ok(Map.of("message", "Password reset OTP sent to " + email));
         } catch (IllegalStateException e) {

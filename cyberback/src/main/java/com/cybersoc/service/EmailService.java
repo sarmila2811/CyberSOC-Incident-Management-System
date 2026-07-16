@@ -49,8 +49,13 @@ public class EmailService {
         }
     }
 
-    public void sendEmail(String toEmail, String subject, String bodyHtml) {
-        checkConfiguration();
+    public boolean sendEmail(String toEmail, String subject, String bodyHtml) {
+        try {
+            checkConfiguration();
+        } catch (Exception e) {
+            System.err.println("SMTP Configuration check failed: " + e.getMessage());
+            return false;
+        }
         
         EmailLog log = new EmailLog();
         log.setRecipient(toEmail);
@@ -72,18 +77,23 @@ public class EmailService {
             mailSender.send(message);
             log.setStatus("Delivered");
             System.out.println("OTP email sent successfully");
+            return true;
         } catch (Exception e) {
             log.setStatus("Failed");
             log.setFailureReason(e.getMessage() != null ? e.getMessage() : e.toString());
             System.err.println("Failed to send email: " + e.getMessage());
             e.printStackTrace();
-            throw new RuntimeException(e);
+            return false;
         } finally {
-            emailLogRepository.save(log);
+            try {
+                emailLogRepository.save(log);
+            } catch (Exception dbEx) {
+                System.err.println("Failed to save email log to database: " + dbEx.getMessage());
+            }
         }
     }
 
-    public void sendOtp(String toEmail, String otp) {
+    public boolean sendOtp(String toEmail, String otp) {
         String title = "OTP Verification Required";
         String heading = "Verify Your Account";
         String content = "Your random 6-digit One-Time Password (OTP) is: "
@@ -91,10 +101,10 @@ public class EmailService {
                 + "This OTP is valid for <strong>" + com.cybersoc.service.OtpService.OTP_EXPIRY_MINUTES + " minutes</strong>. If you did not request this code, please ignore this email.";
         
         String body = buildEmailTemplate(title, heading, content);
-        sendEmail(toEmail, "CyberSOC - OTP Verification Required", body);
+        return sendEmail(toEmail, "CyberSOC - OTP Verification Required", body);
     }
 
-    public void sendPasswordResetOtp(String toEmail, String otp) {
+    public boolean sendPasswordResetOtp(String toEmail, String otp) {
         String title = "Password Reset Request";
         String heading = "Reset Your Password";
         String content = "Your password reset One-Time Password (OTP) is: "
@@ -102,12 +112,12 @@ public class EmailService {
                 + "This OTP is valid for <strong>" + com.cybersoc.service.OtpService.OTP_EXPIRY_MINUTES + " minutes</strong>. If you did not initiate this reset request, please secure your account immediately.";
         
         String body = buildEmailTemplate(title, heading, content);
-        sendEmail(toEmail, "CyberSOC - Password Reset Request", body);
+        return sendEmail(toEmail, "CyberSOC - Password Reset Request", body);
     }
 
-    public void sendIncidentNotification(String toEmail, String subject, String title, String heading, String details) {
+    public boolean sendIncidentNotification(String toEmail, String subject, String title, String heading, String details) {
         String body = buildEmailTemplate(title, heading, details);
-        sendEmail(toEmail, "CyberSOC Incident Alert: " + subject, body);
+        return sendEmail(toEmail, "CyberSOC Incident Alert: " + subject, body);
     }
 
     private String buildEmailTemplate(String title, String heading, String content) {
