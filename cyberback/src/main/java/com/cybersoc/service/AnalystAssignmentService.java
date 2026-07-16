@@ -125,13 +125,11 @@ public class AnalystAssignmentService {
                 .filter(u -> "ACTIVE".equalsIgnoreCase(u.getStatus()))
                 .toList();
 
-        List<User> matchingAnalysts = activeAnalysts.stream()
-                .filter(u -> doesSpecializationMatch(incident.getCategory(), u.getSpecialization()))
-                .toList();
-
-        List<User> eligibleAnalysts = matchingAnalysts.isEmpty() ? activeAnalysts : matchingAnalysts;
-
-        if (eligibleAnalysts.isEmpty()) {
+        if (activeAnalysts.isEmpty()) {
+            System.out.println("Candidate Scores:\nNo active analysts available.");
+            System.out.println("\nHighest Score: 0.00%");
+            System.out.println("Threshold: 80%");
+            System.out.println("Decision: PENDING_ASSIGNMENT");
             return null;
         }
 
@@ -140,13 +138,15 @@ public class AnalystAssignmentService {
         long bestWorkload = 999;
         long bestSimilar = 0;
 
-        for (User analyst : eligibleAnalysts) {
+        System.out.println("Candidate Scores:");
+        for (User analyst : activeAnalysts) {
             double finalScore = calculateAnalystScore(incident, analyst);
-
             long activeWorkload = incidentRepository.countActiveWorkload(analyst.getUsername());
             long similarResolved = resolvedIncidentRepository.findAll().stream()
                     .filter(r -> analyst.getUsername().equalsIgnoreCase(r.getAssignedAnalyst()) && incident.getCategory().equalsIgnoreCase(r.getCategory()))
                     .count();
+
+            System.out.println(analyst.getFullName() + " : " + String.format("%.2f", finalScore) + "%");
 
             boolean isBetter = false;
             if (finalScore > maxScore) {
@@ -166,6 +166,11 @@ public class AnalystAssignmentService {
                 bestSimilar = similarResolved;
             }
         }
+
+        System.out.println("\nHighest Score: " + String.format("%.2f", maxScore) + "%");
+        System.out.println("Threshold: 80%");
+        System.out.println("Decision: " + (maxScore >= 80.0 ? "AUTO_ASSIGN" : "PENDING_ASSIGNMENT"));
+
         return bestAnalyst;
     }
 
@@ -203,73 +208,19 @@ public class AnalystAssignmentService {
     }
 
     public Incident autoAssignWithAi(Incident incident) {
-        List<User> activeAnalysts = userRepository.findAll().stream()
-                .filter(u -> u.getRole() != null && "ANALYST".equalsIgnoreCase(u.getRole().trim()))
-                .filter(u -> "ACTIVE".equalsIgnoreCase(u.getStatus()))
-                .toList();
-
-        List<User> matchingCategoryAnalysts = activeAnalysts.stream()
-                .filter(u -> doesSpecializationMatch(incident.getCategory(), u.getSpecialization()))
-                .toList();
-
-        boolean hasActiveAnalysts = !activeAnalysts.isEmpty();
-        boolean hasMatchingCategoryAnalysts = !matchingCategoryAnalysts.isEmpty();
-
-        // Auto assignment is only blocked if no active analysts or no matching category analysts exist
-        boolean canAutoAssign = hasActiveAnalysts && hasMatchingCategoryAnalysts;
-
-        if (canAutoAssign) {
-            User recommended = getAiRecommendedAnalyst(incident);
-            if (recommended == null) {
-                recommended = activeAnalysts.get(0); // Fallback just in case
-            }
-
-            double aiMatchScore = calculateAnalystScore(incident, recommended);
-            int confidence = (int) Math.round(aiMatchScore);
-            incident.setRoutingConfidence(confidence);
-            incident.setAiAssistantConfidenceScore(String.valueOf(confidence));
-
-            String reasonText = confidence >= 80 
-                ? "AI confidence above 80% threshold."
-                : "Assigned with moderate confidence. Manual review recommended.";
-
-            // Assign to analyst
-            assignToAnalyst(incident, recommended, recommended.getAnalystLevel() != null ? recommended.getAnalystLevel() : "L1", 
-                            "Unassigned", "AI System", "AUTO_ASSIGNED", reasonText);
-            
-            incident.setStatus("UNDER_INVESTIGATION");
-            incident.setUpdatedTime(now());
-            Incident saved = incidentRepository.save(incident);
-            
-            // Log automatic assignment in audit logs
-            auditService.log(
-                "AI System",
-                "AI AUTOMATIC ASSIGNMENT",
-                String.valueOf(saved.getId()),
-                saved.getTitle(),
-                "Unassigned",
-                recommended.getUsername(),
-                "127.0.0.1",
-                "AI Routing Confidence: " + confidence + "% | Auto Assignment: GRANTED | Reason: " + reasonText
-            );
-            return saved;
-        } else {
-            // Keep incident unassigned and move to Admin Assignment Review Queue
+        User recommended = getAiRecommendedAnalyst(incident);
+        if (recommended == null) {
             incident.setStatus("PENDING_ASSIGNMENT");
             incident.setAssignedTo(null);
             incident.setAssignedAnalystName(null);
             incident.setUpdatedTime(now());
-            
-            String failReason = "No active analysts available in SOC roster.";
-            if (hasActiveAnalysts && !hasMatchingCategoryAnalysts) {
-                failReason = "No analyst exists in matching category.";
-            }
-            
-            incident.setAnalystNotes("AI Recommendation: None. Result: Pending Admin Review. Reason: " + failReason);
+            incident.setAnalystNotes("AI Recommendation: None. Result: Manual Assignment Required.");
+            incident.setAssignmentReason("Manual Assignment Required");
+            incident.setRoutingConfidence(0);
+            incident.setAiAssistantConfidenceScore("0");
             
             Incident saved = incidentRepository.save(incident);
             
-            // Save Assignment History for the blocked/pending assignment
             AssignmentHistory ah = new AssignmentHistory();
             ah.setIncidentId(saved.getId());
             ah.setAssignedBy("AI System");
@@ -285,16 +236,11 @@ public class AnalystAssignmentService {
                 + "Decision:\n"
                 + "ADMIN_REVIEW_REQUIRED\n\n"
                 + "Reason:\n"
-                + failReason;
+                + "Manual Assignment Required. No active analysts available.";
                 
             ah.setReason(detailedReason);
             ah.setAssignmentTime(now());
             assignmentHistoryRepository.save(ah);
-            
-            // Print console logs as required
-            System.out.println("AI Routing Confidence: 0%");
-            System.out.println("Auto Assignment: BLOCKED");
-            System.out.println("Reason: " + failReason);
             
             auditService.log(
                 "AI System",
@@ -304,13 +250,94 @@ public class AnalystAssignmentService {
                 "Unassigned",
                 "None",
                 "127.0.0.1",
-                "AI Routing Confidence: 0% | Auto Assignment: BLOCKED | Reason: " + failReason
+                "AI Routing Confidence: 0% | Decision: PENDING_ASSIGNMENT | Reason: No active analysts available."
             );
             
-            // Notify Admin that manual assignment is required
             notificationService.send(new Notification(
                 "PENDING_ASSIGNMENT", 
-                "Incident INC-" + String.format("%06d", saved.getId()) + " requires Admin Review: " + failReason, 
+                "Incident INC-" + String.format("%06d", saved.getId()) + " requires Admin Review: Manual Assignment Required.", 
+                "admin"
+            ));
+            
+            return saved;
+        }
+
+        double aiMatchScore = calculateAnalystScore(incident, recommended);
+        int confidence = (int) Math.round(aiMatchScore);
+        incident.setRoutingConfidence(confidence);
+        incident.setAiAssistantConfidenceScore(String.valueOf(confidence));
+
+        boolean canAutoAssign = confidence >= 80;
+
+        if (canAutoAssign) {
+            String reasonText = "AI confidence above 80% threshold.";
+            
+            assignToAnalyst(incident, recommended, recommended.getAnalystLevel() != null ? recommended.getAnalystLevel() : "L1", 
+                            "Unassigned", "AI System", "AUTO_ASSIGNED", reasonText);
+            
+            incident.setStatus("UNDER_INVESTIGATION");
+            incident.setUpdatedTime(now());
+            incident.setAssignmentReason(reasonText);
+            Incident saved = incidentRepository.save(incident);
+            
+            auditService.log(
+                "AI System",
+                "AI AUTOMATIC ASSIGNMENT",
+                String.valueOf(saved.getId()),
+                saved.getTitle(),
+                "Unassigned",
+                recommended.getUsername(),
+                "127.0.0.1",
+                "AI Routing Confidence: " + confidence + "% | Decision: AUTO_ASSIGN | Reason: " + reasonText
+            );
+            return saved;
+        } else {
+            incident.setStatus("PENDING_ASSIGNMENT");
+            incident.setAssignedTo(null);
+            incident.setAssignedAnalystName(null);
+            incident.setUpdatedTime(now());
+            
+            String failReason = "Manual Assignment Required";
+            incident.setAnalystNotes("AI Recommendation: " + recommended.getFullName() + " (" + confidence + "%). Result: Manual Assignment Required. Reason: AI confidence below automatic assignment threshold.");
+            incident.setAssignmentReason(failReason);
+            
+            Incident saved = incidentRepository.save(incident);
+            
+            AssignmentHistory ah = new AssignmentHistory();
+            ah.setIncidentId(saved.getId());
+            ah.setAssignedBy("AI System");
+            ah.setAssignedTo("Unassigned");
+            ah.setAssignedToName("Pending Manual Assignment");
+            ah.setIncidentCategory(saved.getCategory());
+            ah.setAnalystSpecialization("None");
+            ah.setOverride(false);
+            ah.setAssignmentType("PENDING_ADMIN_REVIEW");
+            
+            String detailedReason = "AI Confidence Score:\n"
+                + confidence + "%\n\n"
+                + "Decision:\n"
+                + "ADMIN_REVIEW_REQUIRED\n\n"
+                + "Reason:\n"
+                + "AI confidence below automatic assignment threshold.";
+                
+            ah.setReason(detailedReason);
+            ah.setAssignmentTime(now());
+            assignmentHistoryRepository.save(ah);
+            
+            auditService.log(
+                "AI System",
+                "PENDING ASSIGNMENT - BLOCKED",
+                String.valueOf(saved.getId()),
+                saved.getTitle(),
+                "Unassigned",
+                "None",
+                "127.0.0.1",
+                "AI Routing Confidence: " + confidence + "% | Decision: PENDING_ASSIGNMENT | Reason: AI confidence below 80% threshold."
+            );
+            
+            notificationService.send(new Notification(
+                "PENDING_ASSIGNMENT", 
+                "Incident INC-" + String.format("%06d", saved.getId()) + " requires Admin Review: Manual Assignment Required.", 
                 "admin"
             ));
             
@@ -448,16 +475,11 @@ public class AnalystAssignmentService {
         String fullName = analyst.getFullName();
         
         long activeIncidents = incidentRepository.countActiveWorkload(analyst.getUsername());
-        long resolvedCount = resolvedIncidentRepository.countByAssignedAnalyst(analyst.getUsername());
-        int escalatedVal = analyst.getEscalatedIncidents() != null ? analyst.getEscalatedIncidents() : 0;
-        int reopenedVal = analyst.getReopenedIncidents() != null ? analyst.getReopenedIncidents() : 0;
-        
-        int totalAss = (int) (activeIncidents + resolvedCount + escalatedVal + reopenedVal);
-        double perfScore = totalAss > 0 ? (resolvedCount * 100.0 / totalAss) : 0.0;
+        double perfScore = analyst.getPerformanceScore() != null ? analyst.getPerformanceScore() : 0.0;
         
         double specScore = doesSpecializationMatch(incident.getCategory(), analyst.getSpecialization()) ? 100.0 : 0.0;
         double workloadScore = Math.max(0.0, 100.0 - (activeIncidents * 10.0));
-        double assignmentScore = (0.40 * specScore) + (0.30 * workloadScore) + (0.30 * perfScore);
+        double assignmentScore = calculateAnalystScore(incident, analyst);
 
         incident.setAssignmentSpecScore(specScore);
         incident.setAssignmentWorkloadScore(workloadScore);
@@ -518,12 +540,12 @@ public class AnalystAssignmentService {
         } else {
             detailedReason = actionHeader + "\n"
                 + "AI Confidence Score: " + (incident.getRoutingConfidence() != null ? incident.getRoutingConfidence() + "%" : "N/A") + "\n"
-                + "Assignment Decision: Automatically assigned because AI confidence score exceeded 80% threshold.\n"
+                + "Assignment Decision: " + (type.contains("Manual") || type.contains("Override") ? "Manual Assignment" : "Automatic Assignment") + "\n"
                 + "Specialization Match : " + String.format("%.0f", specScore) + "\n"
                 + "Workload Score : " + String.format("%.0f", workloadScore) + "\n"
                 + "Performance Score : " + String.format("%.1f", perfScore) + "\n"
                 + "Final Assignment Score : " + String.format("%.2f", assignmentScore) + "\n"
-                + "Reason\n"
+                + "Reason:\n"
                 + decisionExplanation;
         }
 

@@ -481,12 +481,9 @@ public class IncidentController {
             return ResponseEntity.notFound().build();
         }
 
-        List<User> activeAnalysts = userRepository.findAll().stream()
-                .filter(u -> u.getRole() != null && "ANALYST".equalsIgnoreCase(u.getRole().trim()))
-                .filter(u -> "ACTIVE".equalsIgnoreCase(u.getStatus()))
-                .toList();
+        User bestAnalyst = assignmentService.getAiRecommendedAnalyst(incident);
 
-        if (activeAnalysts.isEmpty()) {
+        if (bestAnalyst == null) {
             Map<String, Object> errRes = new HashMap<>();
             errRes.put("score", 0);
             errRes.put("recommendedAnalystUsername", "");
@@ -495,104 +492,70 @@ public class IncidentController {
             return ResponseEntity.ok(errRes);
         }
 
-        User bestAnalyst = null;
-        double maxScore = -1.0;
-        List<String> bestReasons = new java.util.ArrayList<>();
-        long bestWorkload = 999;
-        long bestSimilar = 0;
+        double maxScore = assignmentService.calculateAnalystScore(incident, bestAnalyst);
 
-        for (User analyst : activeAnalysts) {
-            boolean specMatch = com.cybersoc.service.AnalystAssignmentService.doesSpecializationMatch(incident.getCategory(), analyst.getSpecialization());
-            double specScore = specMatch ? 100.0 : 0.0;
-
-            String priority = incident.getPriority();
-            String level = analyst.getAnalystLevel() != null ? analyst.getAnalystLevel().toUpperCase() : "L1";
-            double levelScore = 50.0;
-            if ("CRITICAL".equalsIgnoreCase(priority) || "HIGH".equalsIgnoreCase(priority)) {
-                if ("L2".equals(level) || "L3".equals(level)) {
-                    levelScore = 100.0;
-                }
+        boolean specMatch = com.cybersoc.service.AnalystAssignmentService.doesSpecializationMatch(incident.getCategory(), bestAnalyst.getSpecialization());
+        String priority = incident.getPriority();
+        String level = bestAnalyst.getAnalystLevel() != null ? bestAnalyst.getAnalystLevel().toUpperCase() : "L1";
+        double levelScore = 50.0;
+        if ("CRITICAL".equalsIgnoreCase(priority) || "HIGH".equalsIgnoreCase(priority)) {
+            if ("L2".equals(level) || "L3".equals(level)) {
+                levelScore = 100.0;
+            }
+        } else {
+            if ("L1".equals(level)) {
+                levelScore = 100.0;
             } else {
-                if ("L1".equals(level)) {
-                    levelScore = 100.0;
-                } else {
-                    levelScore = 70.0;
-                }
+                levelScore = 70.0;
             }
+        }
 
-            long activeWorkload = service.getAll().stream()
-                    .filter(i -> analyst.getUsername().equalsIgnoreCase(i.getAssignedTo()) && !"CLOSED".equalsIgnoreCase(i.getStatus()) && !"RESOLVED".equalsIgnoreCase(i.getStatus()))
-                    .count();
-            double workloadScore = Math.max(0.0, 100.0 - (activeWorkload * 10.0));
+        long activeWorkload = service.getAll().stream()
+                .filter(i -> bestAnalyst.getUsername().equalsIgnoreCase(i.getAssignedTo()) && !"CLOSED".equalsIgnoreCase(i.getStatus()) && !"RESOLVED".equalsIgnoreCase(i.getStatus()))
+                .count();
+        long similarResolved = resolvedIncidentRepository.findAll().stream()
+                .filter(r -> bestAnalyst.getUsername().equalsIgnoreCase(r.getAssignedAnalyst()) && incident.getCategory().equalsIgnoreCase(r.getCategory()))
+                .count();
+        double performanceScore = bestAnalyst.getPerformanceScore() != null ? bestAnalyst.getPerformanceScore() : 0.0;
 
-            long similarResolved = resolvedIncidentRepository.findAll().stream()
-                    .filter(r -> analyst.getUsername().equalsIgnoreCase(r.getAssignedAnalyst()) && incident.getCategory().equalsIgnoreCase(r.getCategory()))
-                    .count();
-            double experienceScore = Math.min(100.0, similarResolved * 10.0);
+        List<String> reasons = new java.util.ArrayList<>();
+        if (specMatch) {
+            reasons.add("Specialization matches incident category");
+        } else {
+            reasons.add("Cross-training opportunity (specialization does not match)");
+        }
 
-            double performanceScore = analyst.getPerformanceScore() != null ? analyst.getPerformanceScore() : 0.0;
+        if (similarResolved > 0) {
+            reasons.add("Resolved " + similarResolved + " similar incidents");
+        } else {
+            reasons.add("Caseload capacity available for this category");
+        }
 
-            double finalScore = assignmentService.calculateAnalystScore(incident, analyst);
+        if (activeWorkload <= 2) {
+            reasons.add("Current workload is low");
+        } else if (activeWorkload <= 5) {
+            reasons.add("Current workload is moderate");
+        } else {
+            reasons.add("Workload is manageable");
+        }
 
-            boolean isBetter = false;
-            if (finalScore > maxScore) {
-                isBetter = true;
-            } else if (Math.abs(finalScore - maxScore) < 0.0001) {
-                if (activeWorkload < bestWorkload) {
-                    isBetter = true;
-                } else if (activeWorkload == bestWorkload && similarResolved > bestSimilar) {
-                    isBetter = true;
-                }
-            }
+        if (performanceScore >= 80.0) {
+            reasons.add("High resolution success rate (" + String.format("%.1f", performanceScore) + "%)");
+        } else if (performanceScore >= 60.0) {
+            reasons.add("Good resolution success rate (" + String.format("%.1f", performanceScore) + "%)");
+        } else {
+            reasons.add("Established resolution history");
+        }
 
-            if (isBetter) {
-                maxScore = finalScore;
-                bestAnalyst = analyst;
-                bestWorkload = activeWorkload;
-                bestSimilar = similarResolved;
-
-                List<String> reasons = new java.util.ArrayList<>();
-                if (specMatch) {
-                    reasons.add("Specialization matches incident category");
-                } else {
-                    reasons.add("Cross-training opportunity (specialization does not match)");
-                }
-
-                if (similarResolved > 0) {
-                    reasons.add("Resolved " + similarResolved + " similar incidents");
-                } else {
-                    reasons.add("Caseload capacity available for this category");
-                }
-
-                if (activeWorkload <= 2) {
-                    reasons.add("Current workload is low");
-                } else if (activeWorkload <= 5) {
-                    reasons.add("Current workload is moderate");
-                } else {
-                    reasons.add("Workload is manageable");
-                }
-
-                if (performanceScore >= 80.0) {
-                    reasons.add("High resolution success rate (" + String.format("%.1f", performanceScore) + "%)");
-                } else if (performanceScore >= 60.0) {
-                    reasons.add("Good resolution success rate (" + String.format("%.1f", performanceScore) + "%)");
-                } else {
-                    reasons.add("Established resolution history");
-                }
-
-                if (levelScore == 100.0) {
-                    reasons.add("Analyst tier matches threat classification level");
-                }
-
-                bestReasons = reasons;
-            }
+        if (levelScore == 100.0) {
+            reasons.add("Analyst tier matches threat classification level");
         }
 
         Map<String, Object> res = new HashMap<>();
         res.put("score", (int) Math.round(maxScore));
-        res.put("recommendedAnalystUsername", bestAnalyst != null ? bestAnalyst.getUsername() : "");
-        res.put("recommendedAnalystName", bestAnalyst != null ? bestAnalyst.getFullName() : "");
-        res.put("reasons", bestReasons);
+        res.put("recommendedAnalystUsername", bestAnalyst.getUsername());
+        res.put("recommendedAnalystName", bestAnalyst.getFullName());
+        res.put("reasons", reasons);
 
         return ResponseEntity.ok(res);
     }
