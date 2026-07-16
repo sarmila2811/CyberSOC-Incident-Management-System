@@ -230,7 +230,7 @@ public class IncidentController {
 
     // ================= GET ALL (ACTIVE + RESOLVED) =================
     @GetMapping
-    public List<IncidentSummaryDTO> getAll() {
+    public List<IncidentSummaryDTO> getAll(@RequestParam(required = false) Integer limit) {
         List<Incident> activeIncidents = service.getAll();
         activeIncidents.forEach(this::syncDescriptionDepartment);
         activeIncidents.forEach(this::updateSlaStatus);
@@ -250,15 +250,27 @@ public class IncidentController {
                         boolean isSpecializationMatch = com.cybersoc.service.AnalystAssignmentService.doesSpecializationMatch(inc.getCategory(), spec);
                         return isAssignedToMe || isSpecializationMatch;
                     }).toList());
-                    return filtered.stream().map(IncidentSummaryDTO::new).toList();
+                    List<IncidentSummaryDTO> list = filtered.stream().map(IncidentSummaryDTO::new).toList();
+                    if (limit != null && limit > 0 && limit < list.size()) {
+                        return list.subList(0, limit);
+                    }
+                    return list;
                 } else if ("EMPLOYEE".equals(role)) {
                     filtered = filterUniqueIncidents(activeIncidents.stream().filter(inc -> currentUsername.equalsIgnoreCase(inc.getReportedBy())).toList());
-                    return filtered.stream().map(IncidentSummaryDTO::new).toList();
+                    List<IncidentSummaryDTO> list = filtered.stream().map(IncidentSummaryDTO::new).toList();
+                    if (limit != null && limit > 0 && limit < list.size()) {
+                        return list.subList(0, limit);
+                    }
+                    return list;
                 }
             }
         }
         filtered = filterUniqueIncidents(activeIncidents);
-        return filtered.stream().map(IncidentSummaryDTO::new).toList();
+        List<IncidentSummaryDTO> list = filtered.stream().map(IncidentSummaryDTO::new).toList();
+        if (limit != null && limit > 0 && limit < list.size()) {
+            return list.subList(0, limit);
+        }
+        return list;
     }
 
     @GetMapping("/active")

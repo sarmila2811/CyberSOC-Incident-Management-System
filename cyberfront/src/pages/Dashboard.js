@@ -111,19 +111,6 @@ function Dashboard() {
         setUsers(usersList);
       }
  
-      // If ADMIN, fetch resolved to compute resolution rates for summary card
-      let resolvedList = [];
-      if (role === "ADMIN") {
-        try {
-          const resRes = await fetch(window.API_BASE_URL + "/api/incidents/resolved", { headers });
-          if (resRes.ok) {
-            resolvedList = await resRes.json();
-          }
-        } catch (e) {
-          console.error("Failed to fetch resolved incidents for admin stats:", e);
-        }
-      }
- 
       // Calculate Admin Stats
       if (role === "ADMIN" && statsData && usersList.length > 0) {
         const employeesList = usersList.filter(u => u.role && u.role.toLowerCase() === "employee");
@@ -131,25 +118,6 @@ function Dashboard() {
         const adminsList = usersList.filter(u => u.role && u.role.toLowerCase() === "admin");
         const activeList = usersList.filter(u => u.status && u.status.toLowerCase() === "active");
         const inactiveList = usersList.filter(u => u.status && u.status.toLowerCase() === "inactive");
- 
-        let avgResTime = "N/A";
-        let totalMs = 0;
-        let count = 0;
-        resolvedList.forEach(r => {
-          if (r.resolvedTime && r.timestamp) {
-            const start = new Date(r.timestamp);
-            const end = new Date(r.resolvedTime);
-            const diff = end - start;
-            if (diff > 0) {
-              totalMs += diff;
-              count++;
-            }
-          }
-        });
-        if (count > 0) {
-          const avgHrs = (totalMs / (1000 * 60 * 60 * count)).toFixed(1);
-          avgResTime = `${avgHrs} Hours`;
-        }
  
         setAdminStats({
           totalEmployees: employeesList.length,
@@ -162,7 +130,7 @@ function Dashboard() {
           resolvedIncidents: statsData.resolvedIncidents,
           criticalIncidents: statsData.priorityBreakdown?.Critical || 0,
           escalatedIncidents: statsData.escalated || 0,
-          avgResolutionTime: avgResTime
+          avgResolutionTime: statsData.avgResolutionTime || "N/A"
         });
       }
  
@@ -171,8 +139,8 @@ function Dashboard() {
  
       // Phase 2: Asynchronously fetch heavy list data and charts in parallel
       const [resInc, resAudit, resNotif] = await Promise.all([
-        fetch(window.API_BASE_URL + "/api/incidents", { headers }),
-        fetch(window.API_BASE_URL + "/api/audit", { headers }),
+        fetch(window.API_BASE_URL + "/api/incidents?limit=15", { headers }),
+        fetch(window.API_BASE_URL + "/api/audit?limit=25", { headers }),
         currentUser.username
           ? fetch(`${window.API_BASE_URL}/api/notifications/${currentUser.username}`, { headers })
           : Promise.resolve({ ok: false })

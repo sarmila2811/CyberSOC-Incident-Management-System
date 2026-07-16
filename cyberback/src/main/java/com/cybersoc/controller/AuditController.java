@@ -18,8 +18,12 @@ public class AuditController {
     }
 
     @GetMapping
-    public List<AuditLog> getLogs() {
-        return service.getAllLogs();
+    public List<AuditLog> getLogs(@RequestParam(required = false) Integer limit) {
+        List<AuditLog> logs = service.getAllLogs();
+        if (limit != null && limit > 0 && limit < logs.size()) {
+            return logs.subList(0, limit);
+        }
+        return logs;
     }
 
     @GetMapping("/incident/{incidentId}")

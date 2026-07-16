@@ -166,9 +166,9 @@ public class ReportController {
                              "CLOSED".equalsIgnoreCase(i.getStatus()))
                 .toList();
 
-        long totalActive = realActive.size();
+        long totalActive = "ANALYST".equals(finalRole) ? realActive.stream().filter(i -> finalUser.equalsIgnoreCase(i.getAssignedTo())).count() : realActive.size();
         long totalResolved = resolvedIncidents.size();
-        long totalIncidents = allActiveRaw.size();
+        long totalIncidents = activeIncidents.size();
 
         long open = activeIncidents.stream().filter(i -> "OPEN".equalsIgnoreCase(i.getStatus()) || "Open".equalsIgnoreCase(i.getStatus())).count();
         long pendingAssignment = activeIncidents.stream().filter(i -> "PENDING_ASSIGNMENT".equalsIgnoreCase(i.getStatus())).count();
@@ -371,6 +371,33 @@ public class ReportController {
         double complianceRate = totalIncidents > 0 ? ((double) compliant / totalIncidents) * 100 : 100.0;
         stats.put("slaComplianceRate", Math.round(complianceRate * 10.0) / 10.0);
         stats.put("slaViolations", slaViolated);
+
+        // Calculate average resolution time on the backend to avoid loading huge lists on frontend
+        double totalMs = 0;
+        int countRes = 0;
+        for (ResolvedIncident r : resolvedIncidents) {
+            if (r.getResolvedTime() != null && r.getTimestamp() != null) {
+                try {
+                    DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+                    LocalDateTime start = LocalDateTime.parse(r.getTimestamp(), formatter);
+                    LocalDateTime end = LocalDateTime.parse(r.getResolvedTime(), formatter);
+                    java.time.Duration duration = java.time.Duration.between(start, end);
+                    long millis = duration.toMillis();
+                    if (millis > 0) {
+                        totalMs += millis;
+                        countRes++;
+                    }
+                } catch (Exception e) {
+                    // Ignore parsing errors
+                }
+            }
+        }
+        String avgResTime = "N/A";
+        if (countRes > 0) {
+            double avgHrs = totalMs / (1000.0 * 60.0 * 60.0 * countRes);
+            avgResTime = String.format("%.1f Hours", avgHrs);
+        }
+        stats.put("avgResolutionTime", avgResTime);
 
         return ResponseEntity.ok(stats);
     }

@@ -187,11 +187,9 @@ function Incidents() {
       const filterParam = searchParams.get("filter");
       let incidentsUrl = window.API_BASE_URL + "/api/incidents";
       if (filterParam === "active") {
-        incidentsUrl = window.API_BASE_URL + "/api/incidents/active";
-      } else if (role === "ANALYST" && username) {
-        incidentsUrl = `${window.API_BASE_URL}/api/incidents/my-incidents/${username}`;
-      } else if (role === "EMPLOYEE" && username) {
-        incidentsUrl = `${window.API_BASE_URL}/api/incidents/user/${username}`;
+        incidentsUrl = (role === "ANALYST" && username) 
+          ? `${window.API_BASE_URL}/api/incidents/my-incidents/${username}`
+          : window.API_BASE_URL + "/api/incidents/active";
       }
 
       const [resActive, resUsers] = await Promise.all([
