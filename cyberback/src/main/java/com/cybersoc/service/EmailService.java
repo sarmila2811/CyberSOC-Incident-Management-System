@@ -29,12 +29,15 @@ public class EmailService {
     @org.springframework.beans.factory.annotation.Value("${spring.mail.password:}")
     private String mailPassword;
 
-    public EmailService(JavaMailSender mailSender, EmailLogRepository emailLogRepository) {
+    public EmailService(@org.springframework.beans.factory.annotation.Autowired(required = false) JavaMailSender mailSender, EmailLogRepository emailLogRepository) {
         this.mailSender = mailSender;
         this.emailLogRepository = emailLogRepository;
     }
 
     private void checkConfiguration() {
+        if (mailSender == null) {
+            throw new IllegalStateException("JavaMailSender bean is not initialized. Please verify your SMTP / mail configuration properties.");
+        }
         if (mailHost == null || mailHost.trim().isEmpty()) {
             throw new IllegalStateException("SMTP Host configuration is missing (spring.mail.host).");
         }
