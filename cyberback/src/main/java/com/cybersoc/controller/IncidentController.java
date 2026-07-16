@@ -758,6 +758,22 @@ public class IncidentController {
         // Workload-based escalation chain auto assignment
         saved = assignmentService.autoAssignWithAi(saved);
 
+        // Notify Admin
+        notificationService.send(new Notification(
+                "NEW_INCIDENT",
+                "New incident INC-" + String.format("%06d", saved.getId()) + " reported by " + (saved.getReportedBy() != null ? saved.getReportedBy() : "Employee") + " in category: " + saved.getCategory() + " (" + saved.getTitle() + ")",
+                "admin"
+        ));
+
+        // Notify Employee (Reporter)
+        if (saved.getReportedBy() != null) {
+            notificationService.send(new Notification(
+                    "CREATED",
+                    "Your reported incident INC-" + String.format("%06d", saved.getId()) + " has been successfully submitted.",
+                    saved.getReportedBy()
+            ));
+        }
+
         return saved;
     }
 
