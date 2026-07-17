@@ -117,7 +117,67 @@ public class IncidentController {
         }
         return false;
     }
+    private boolean isDescriptionSimilar(String desc1, String desc2) {
+        if (desc1 == null || desc2 == null) return false;
+        String d1 = desc1.trim().replaceAll("\\s+", " ").toLowerCase();
+        String d2 = desc2.trim().replaceAll("\\s+", " ").toLowerCase();
+        if (d1.equals(d2)) return true;
+        
+        // Basic token overlap similarity
+        String[] t1 = d1.split(" ");
+        String[] t2 = d2.split(" ");
+        java.util.Set<String> set1 = new java.util.HashSet<>(java.util.Arrays.asList(t1));
+        java.util.Set<String> set2 = new java.util.HashSet<>(java.util.Arrays.asList(t2));
+        
+        int intersection = 0;
+        for (String s : set1) {
+            if (set2.contains(s)) {
+                intersection++;
+            }
+        }
+        double similarity = (double) intersection / Math.max(set1.size(), set2.size());
+        return similarity >= 0.85;
+    }
 
+    private Incident findDuplicateIncident(Incident incident) {
+        System.out.println("Duplicate check started");
+        
+        List<Incident> allIncidents = service.getAll();
+        for (Incident existing : allIncidents) {
+            String status = existing.getStatus();
+            if ("RESOLVED".equalsIgnoreCase(status) || "CLOSED".equalsIgnoreCase(status)) {
+                continue;
+            }
+            
+            if (incident.getTitle() == null || !incident.getTitle().equalsIgnoreCase(existing.getTitle())) {
+                continue;
+            }
+            if (incident.getCategory() == null || !incident.getCategory().equalsIgnoreCase(existing.getCategory())) {
+                continue;
+            }
+            if (incident.getReportedBy() != null && !incident.getReportedBy().equalsIgnoreCase(existing.getReportedBy())) {
+                continue;
+            }
+            
+            if (!isDescriptionSimilar(incident.getDescription(), existing.getDescription())) {
+                continue;
+            }
+            
+            LocalDateTime existingTime = parseDateTime(existing.getTimestamp());
+            if (existingTime != null) {
+                long minutesBetween = java.time.temporal.ChronoUnit.MINUTES.between(existingTime, LocalDateTime.now());
+                if (Math.abs(minutesBetween) > 10) {
+                    continue;
+                }
+            } else {
+                continue;
+            }
+            
+            System.out.println("Matching incident found: ID=" + existing.getId());
+            return existing;
+        }
+        return null;
+    }
     private LocalDateTime parseDateTime(String dtStr) {
         if (dtStr == null || dtStr.trim().isEmpty()) {
             return null;
@@ -686,7 +746,18 @@ public class IncidentController {
 
     // ================= CREATE INCIDENT (ADMIN) =================
     @PostMapping
-    public Incident create(@RequestBody Incident incident) {
+    public ResponseEntity<?> create(@RequestBody Incident incident) {
+        Incident duplicate = findDuplicateIncident(incident);
+        if (duplicate != null) {
+            System.out.println("Duplicate creation blocked");
+            return ResponseEntity.status(org.springframework.http.HttpStatus.CONFLICT)
+                    .body(Map.of(
+                            "success", false,
+                            "message", "Duplicate incident already exists",
+                            "existingIncidentId", "INC-" + String.format("%06d", duplicate.getId())
+                    ));
+        }
+
         incident.setTimestamp(now());
         incident.setUpdatedTime(incident.getTimestamp());
         incident.setCreatedTime(incident.getTimestamp());
@@ -739,12 +810,23 @@ public class IncidentController {
             ));
         }
 
-        return saved;
+        return ResponseEntity.ok(saved);
     }
 
     // ================= REPORT INCIDENT (EMPLOYEE) =================
     @PostMapping("/report")
-    public Incident report(@RequestBody Incident incident) {
+    public ResponseEntity<?> report(@RequestBody Incident incident) {
+        Incident duplicate = findDuplicateIncident(incident);
+        if (duplicate != null) {
+            System.out.println("Duplicate creation blocked");
+            return ResponseEntity.status(org.springframework.http.HttpStatus.CONFLICT)
+                    .body(Map.of(
+                            "success", false,
+                            "message", "Duplicate incident already exists",
+                            "existingIncidentId", "INC-" + String.format("%06d", duplicate.getId())
+                    ));
+        }
+
         incident.setTimestamp(now());
         incident.setUpdatedTime(incident.getTimestamp());
         incident.setCreatedTime(incident.getTimestamp());
@@ -791,7 +873,7 @@ public class IncidentController {
             ));
         }
 
-        return saved;
+        return ResponseEntity.ok(saved);
     }
 
     // ================= GET BY ID =================
