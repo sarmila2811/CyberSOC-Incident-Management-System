@@ -7,4 +7,6 @@ import com.cybersoc.model.ResolvedIncident;
 @Repository
 public interface ResolvedIncidentRepository extends JpaRepository<ResolvedIncident, Long> {
     long countByAssignedAnalyst(String assignedAnalyst);
+    java.util.List<ResolvedIncident> findByAssignedAnalyst(String assignedAnalyst);
+    java.util.List<ResolvedIncident> findByReportedBy(String reportedBy);
 }

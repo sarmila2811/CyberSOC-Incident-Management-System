@@ -39,4 +39,16 @@ public class IncidentService {
     public List<Incident> getMyIncidents(String username) {
         return incidentRepository.findByAssignedTo(username);
     }
+
+    public List<Incident> getIncidentsForAdmin() {
+        return incidentRepository.findAll();
+    }
+
+    public List<Incident> getIncidentsForAnalyst(String username) {
+        return incidentRepository.findByAssignedTo(username);
+    }
+
+    public List<Incident> getIncidentsForEmployee(String username) {
+        return incidentRepository.findByReportedBy(username);
+    }
 }
