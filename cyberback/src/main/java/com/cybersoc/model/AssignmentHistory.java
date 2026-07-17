@@ -19,6 +19,7 @@ public class AssignmentHistory {
     private boolean isOverride;
     private String assignmentTime;
     private String assignmentType;
+    @Column(columnDefinition = "TEXT")
     private String reason;
 
     public AssignmentHistory() {
