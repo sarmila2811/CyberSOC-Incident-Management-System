@@ -593,35 +593,13 @@ public class IncidentController {
 
         List<String> reasons = new java.util.ArrayList<>();
         if (specMatch) {
-            reasons.add("Specialization matches incident category");
+            reasons.add("✓ Specialization matches incident category");
+            reasons.add("✓ Required skills available");
+            reasons.add("✓ Workload considered");
+            reasons.add("✓ Performance considered");
         } else {
-            reasons.add("No specialist available. Cross-training recommendation required.");
-        }
-
-        if (similarResolved > 0) {
-            reasons.add("Resolved " + similarResolved + " similar incidents");
-        } else {
-            reasons.add("Caseload capacity available for this category");
-        }
-
-        if (activeWorkload <= 2) {
-            reasons.add("Current workload is low");
-        } else if (activeWorkload <= 5) {
-            reasons.add("Current workload is moderate");
-        } else {
-            reasons.add("Workload is manageable");
-        }
-
-        if (performanceScore >= 80.0) {
-            reasons.add("High resolution success rate (" + String.format("%.1f", performanceScore) + "%)");
-        } else if (performanceScore >= 60.0) {
-            reasons.add("Good resolution success rate (" + String.format("%.1f", performanceScore) + "%)");
-        } else {
-            reasons.add("Established resolution history");
-        }
-
-        if (levelScore == 100.0) {
-            reasons.add("Analyst tier matches threat classification level");
+            reasons.add("✓ No specialist available");
+            reasons.add("✓ Cross-training recommendation required");
         }
 
         Map<String, Object> res = new HashMap<>();

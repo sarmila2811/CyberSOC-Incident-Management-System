@@ -208,46 +208,32 @@ public class AnalystAssignmentService {
             double finalScore = calculateAnalystScore(incident, analyst);
 
             boolean specMatch = doesSpecializationMatch(incident.getCategory(), analyst.getSpecialization());
-            String parentSpec = getParentSpecialization(incident.getCategory());
-            boolean isMalwareOrRansomware = "Malware".equalsIgnoreCase(parentSpec) || "Ransomware".equalsIgnoreCase(parentSpec);
-
-            if (isMalwareOrRansomware) {
-                double specScore = specMatch ? 50.0 : 0.0;
-                double threatSeverityMatch = 50.0;
-                String priority = incident.getPriority();
-                String level = analyst.getAnalystLevel() != null ? analyst.getAnalystLevel().toUpperCase() : "L1";
-                if ("CRITICAL".equalsIgnoreCase(priority) || "HIGH".equalsIgnoreCase(priority)) {
-                    if ("L2".equals(level) || "L3".equals(level)) {
-                        threatSeverityMatch = 100.0;
-                    }
-                } else {
-                    if ("L1".equals(level)) {
-                        threatSeverityMatch = 100.0;
-                    } else {
-                        threatSeverityMatch = 70.0;
-                    }
+            double specScore = specMatch ? 50.0 : 0.0;
+            
+            double threatSeverityMatch = 50.0;
+            String priority = incident.getPriority();
+            String level = analyst.getAnalystLevel() != null ? analyst.getAnalystLevel().toUpperCase() : "L1";
+            if ("CRITICAL".equalsIgnoreCase(priority) || "HIGH".equalsIgnoreCase(priority)) {
+                if ("L2".equals(level) || "L3".equals(level)) {
+                    threatSeverityMatch = 100.0;
                 }
-                double severityScoreContribution = (threatSeverityMatch / 100.0) * 20.0;
-                double workloadScore = Math.max(0.0, 15.0 - (activeWorkload * 3.0));
-                double rawPerf = analyst.getPerformanceScore() != null ? analyst.getPerformanceScore() : 0.0;
-                double performanceScoreContribution = (rawPerf / 100.0) * 15.0;
-
-                System.out.println("-> Score: " + String.format("%.2f", finalScore) + "% (Spec: " 
-                    + String.format("%.1f", specScore) + ", SeverityMatch: "
-                    + String.format("%.1f", severityScoreContribution) + ", Workload: " 
-                    + String.format("%.1f", workloadScore) + ", Perf: " 
-                    + String.format("%.1f", performanceScoreContribution) + ")");
             } else {
-                double specScore = specMatch ? 40.0 : 0.0;
-                double workloadScore = Math.max(0.0, 30.0 - (activeWorkload * 6.0));
-                double rawPerf = analyst.getPerformanceScore() != null ? analyst.getPerformanceScore() : 0.0;
-                double performanceScoreContribution = (rawPerf / 100.0) * 30.0;
-
-                System.out.println("-> Score: " + String.format("%.2f", finalScore) + "% (Spec: " 
-                    + String.format("%.1f", specScore) + ", Workload: " 
-                    + String.format("%.1f", workloadScore) + ", Perf: " 
-                    + String.format("%.1f", performanceScoreContribution) + ")");
+                if ("L1".equals(level)) {
+                    threatSeverityMatch = 100.0;
+                } else {
+                    threatSeverityMatch = 70.0;
+                }
             }
+            double severityScoreContribution = (threatSeverityMatch / 100.0) * 20.0;
+            double workloadScore = Math.max(0.0, 20.0 - (activeWorkload * 4.0));
+            double rawPerf = analyst.getPerformanceScore() != null ? analyst.getPerformanceScore() : 0.0;
+            double performanceScoreContribution = (rawPerf / 100.0) * 10.0;
+
+            System.out.println("-> Score: " + String.format("%.2f", finalScore) + "% (Spec: " 
+                + String.format("%.1f", specScore) + ", SeverityMatch: "
+                + String.format("%.1f", severityScoreContribution) + ", Workload: " 
+                + String.format("%.1f", workloadScore) + ", Perf: " 
+                + String.format("%.1f", performanceScoreContribution) + ")");
 
             boolean isBetter = false;
             if (finalScore > maxScore) {
@@ -274,6 +260,38 @@ public class AnalystAssignmentService {
         System.out.println("Decision: " + (maxScore >= threshold ? "AUTO_ASSIGN" : "PENDING_ASSIGNMENT"));
 
         return bestAnalyst;
+    }
+
+    public double calculateAnalystScore(Incident incident, User analyst) {
+        if (analyst == null) return 0.0;
+        
+        boolean specMatch = doesSpecializationMatch(incident.getCategory(), analyst.getSpecialization());
+        double specScore = specMatch ? 50.0 : 0.0;
+
+        double threatSeverityMatch = 50.0;
+        String priority = incident.getPriority();
+        String level = analyst.getAnalystLevel() != null ? analyst.getAnalystLevel().toUpperCase() : "L1";
+        if ("CRITICAL".equalsIgnoreCase(priority) || "HIGH".equalsIgnoreCase(priority)) {
+            if ("L2".equals(level) || "L3".equals(level)) {
+                threatSeverityMatch = 100.0;
+            }
+        } else {
+            if ("L1".equals(level)) {
+                threatSeverityMatch = 100.0;
+            } else {
+                threatSeverityMatch = 70.0;
+            }
+        }
+        double levelScoreContribution = (threatSeverityMatch / 100.0) * 20.0;
+
+        long activeWorkload = incidentRepository.countActiveWorkload(analyst.getUsername());
+        double workloadScore = Math.max(0.0, 20.0 - (activeWorkload * 4.0));
+
+        double rawPerf = analyst.getPerformanceScore() != null ? analyst.getPerformanceScore() : 0.0;
+        double performanceScore = (rawPerf / 100.0) * 10.0;
+
+        double totalScore = specScore + levelScoreContribution + workloadScore + performanceScore;
+        return Math.min(100.0, Math.max(0.0, totalScore));
     }
 
     public double calculateBonusScore(Incident incident, User analyst) {
@@ -306,50 +324,6 @@ public class AnalystAssignmentService {
         }
 
         return bonusScore;
-    }
-
-    public double calculateAnalystScore(Incident incident, User analyst) {
-        if (analyst == null) return 0.0;
-        
-        String parentSpec = getParentSpecialization(incident.getCategory());
-        boolean isMalwareOrRansomware = "Malware".equalsIgnoreCase(parentSpec) || "Ransomware".equalsIgnoreCase(parentSpec);
-        
-        boolean specMatch = doesSpecializationMatch(incident.getCategory(), analyst.getSpecialization());
-        long activeWorkload = incidentRepository.countActiveWorkload(analyst.getUsername());
-        double rawPerf = analyst.getPerformanceScore() != null ? analyst.getPerformanceScore() : 0.0;
-
-        if (isMalwareOrRansomware) {
-            double specScore = specMatch ? 50.0 : 0.0;
-
-            double threatSeverityMatch = 50.0;
-            String priority = incident.getPriority();
-            String level = analyst.getAnalystLevel() != null ? analyst.getAnalystLevel().toUpperCase() : "L1";
-            if ("CRITICAL".equalsIgnoreCase(priority) || "HIGH".equalsIgnoreCase(priority)) {
-                if ("L2".equals(level) || "L3".equals(level)) {
-                    threatSeverityMatch = 100.0;
-                }
-            } else {
-                if ("L1".equals(level)) {
-                    threatSeverityMatch = 100.0;
-                } else {
-                    threatSeverityMatch = 70.0;
-                }
-            }
-            double severityScoreContribution = (threatSeverityMatch / 100.0) * 20.0;
-
-            double workloadScore = Math.max(0.0, 15.0 - (activeWorkload * 3.0));
-            double performanceScoreContribution = (rawPerf / 100.0) * 15.0;
-
-            double totalScore = specScore + severityScoreContribution + workloadScore + performanceScoreContribution;
-            return Math.min(100.0, Math.max(0.0, totalScore));
-        } else {
-            double specScore = specMatch ? 40.0 : 0.0;
-            double workloadScore = Math.max(0.0, 30.0 - (activeWorkload * 6.0));
-            double performanceScoreContribution = (rawPerf / 100.0) * 30.0;
-
-            double totalScore = specScore + workloadScore + performanceScoreContribution;
-            return Math.min(100.0, Math.max(0.0, totalScore));
-        }
     }
 
     public Incident autoAssignWithAi(Incident incident) {
@@ -413,10 +387,22 @@ public class AnalystAssignmentService {
         incident.setRoutingConfidence(confidence);
         incident.setAiAssistantConfidenceScore(String.valueOf(confidence));
 
+        boolean specMatch = doesSpecializationMatch(incident.getCategory(), recommended.getSpecialization());
+        String explanation;
+        if (specMatch) {
+            explanation = "✓ Specialization matches incident category\n"
+                + "✓ Required skills available\n"
+                + "✓ Workload considered\n"
+                + "✓ Performance considered";
+        } else {
+            explanation = "✓ No specialist available\n"
+                + "✓ Cross-training recommendation required";
+        }
+
         boolean canAutoAssign = confidence >= threshold;
 
         if (canAutoAssign) {
-            String reasonText = "AI confidence above " + ((int) threshold) + "% threshold.";
+            String reasonText = "AI confidence above " + ((int) threshold) + "% threshold.\n" + explanation;
             
             assignToAnalyst(incident, recommended, recommended.getAnalystLevel() != null ? recommended.getAnalystLevel() : "L1", 
                             "Unassigned", "AI System", "AUTO_ASSIGNED", reasonText);
@@ -444,7 +430,7 @@ public class AnalystAssignmentService {
             incident.setUpdatedTime(now());
             
             String failReason = "Manual Assignment Required";
-            incident.setAnalystNotes("AI Recommendation: " + recommended.getFullName() + " (" + confidence + "%). Result: Manual Assignment Required. Reason: AI confidence below automatic assignment threshold.");
+            incident.setAnalystNotes("AI Recommendation: " + recommended.getFullName() + " (" + confidence + "%).\n" + explanation);
             incident.setAssignmentReason(failReason);
             
             Incident saved = incidentRepository.save(incident);
@@ -455,7 +441,7 @@ public class AnalystAssignmentService {
             ah.setAssignedTo("Unassigned");
             ah.setAssignedToName("Pending Manual Assignment");
             ah.setIncidentCategory(saved.getCategory());
-            ah.setAnalystSpecialization("None");
+            ah.setAnalystSpecialization(recommended.getSpecialization());
             ah.setOverride(false);
             ah.setAssignmentType("PENDING_ADMIN_REVIEW");
             
@@ -464,7 +450,7 @@ public class AnalystAssignmentService {
                 + "Decision:\n"
                 + "ADMIN_REVIEW_REQUIRED\n\n"
                 + "Reason:\n"
-                + "AI confidence below automatic assignment threshold.";
+                + explanation;
                 
             ah.setReason(detailedReason);
             ah.setAssignmentTime(now());
@@ -980,42 +966,38 @@ public class AnalystAssignmentService {
         return "Unknown";
     }
 
+    public static String normalizeSpecializationString(String val) {
+        if (val == null) return "";
+        return val.trim()
+                  .toUpperCase()
+                  .replaceAll("[^A-Z0-9]", "");
+    }
+
     public static boolean doesSpecializationMatch(String category, String specialization) {
         if (category == null || specialization == null) {
             return false;
         }
+        
         String parentSpec = getParentSpecialization(category);
-        String spec = specialization.toUpperCase().trim();
+        String normParentSpec = normalizeSpecializationString(parentSpec);
+        String normCategory = normalizeSpecializationString(category);
 
-        String parentSpecUpper = parentSpec.toUpperCase().trim();
-        if (parentSpecUpper.equals(spec)) {
-            return true;
-        }
+        String[] skills = specialization.split(",");
+        for (String skill : skills) {
+            String normSkill = normalizeSpecializationString(skill);
+            if (normSkill.isEmpty()) continue;
 
-        // Handle possible alias mappings for the database representation
-        if ("IDENTITY & ACCESS".equalsIgnoreCase(parentSpec)) {
-            return "IDENTITY & ACCESS".equals(spec) || "IDENTITY AND ACCESS".equals(spec) || "IDENTITY_ACCESS".equals(spec);
+            if (normSkill.equals(normParentSpec) || normSkill.equals(normCategory)) {
+                return true;
+            }
+            if (normSkill.contains(normParentSpec) || normParentSpec.contains(normSkill)) {
+                return true;
+            }
+            if (normSkill.contains(normCategory) || normCategory.contains(normSkill)) {
+                return true;
+            }
         }
-        if ("WEB SECURITY".equalsIgnoreCase(parentSpec)) {
-            return "WEB SECURITY".equals(spec) || "WEB_SECURITY".equals(spec) || "WEB ATTACK".equals(spec) || "WEB_ATTACK".equals(spec);
-        }
-        if ("NETWORK SECURITY".equalsIgnoreCase(parentSpec)) {
-            return "NETWORK SECURITY".equals(spec) || "NETWORK_SECURITY".equals(spec) || "NETWORK".equals(spec);
-        }
-        if ("DATA SECURITY".equalsIgnoreCase(parentSpec)) {
-            return "DATA SECURITY".equals(spec) || "DATA_SECURITY".equals(spec) || "DATA_BREACH".equals(spec) || "DATA BREACH".equals(spec);
-        }
-        if ("ENDPOINT SECURITY".equalsIgnoreCase(parentSpec)) {
-            return "ENDPOINT SECURITY".equals(spec) || "ENDPOINT_SECURITY".equals(spec);
-        }
-        if ("CLOUD SECURITY".equalsIgnoreCase(parentSpec)) {
-            return "CLOUD SECURITY".equals(spec) || "CLOUD_SECURITY".equals(spec);
-        }
-        if ("INSIDER THREAT".equalsIgnoreCase(parentSpec)) {
-            return "INSIDER THREAT".equals(spec) || "INSIDER_THREAT".equals(spec);
-        }
-
-        return parentSpec.equalsIgnoreCase(specialization);
+        return false;
     }
 
     public void syncAnalystStats(User analyst) {
