@@ -66,7 +66,7 @@ public class EmailService {
         log.setSentTime(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
 
         System.out.println("[Email Workflow] Recipient email: " + toEmail);
-        System.out.println("[SMTP Connection] Attempting SMTP connection to host: " + mailHost + ", port: " + mailPort);
+        System.out.println("[SMTP Connection] Attempting SMTP connection to host: " + mailHost + ", port: " + mailPort + ", user: " + mailUsername);
 
         try {
             MimeMessage message = mailSender.createMimeMessage();
@@ -83,8 +83,34 @@ public class EmailService {
             return true;
         } catch (Exception e) {
             log.setStatus("Failed");
-            log.setFailureReason(e.getMessage() != null ? e.getMessage() : e.toString());
-            System.err.println("Failed to send email: " + e.getMessage());
+            String errDetail = e.getMessage() != null ? e.getMessage() : e.toString();
+            log.setFailureReason(errDetail);
+            
+            System.err.println("======== SMTP DIAGNOSTICS FAILURE ========");
+            System.err.println("Exception Class: " + e.getClass().getName());
+            System.err.println("Error Message: " + errDetail);
+            
+            Throwable cause = e.getCause();
+            if (cause != null) {
+                System.err.println("Root Cause Class: " + cause.getClass().getName());
+                System.err.println("Root Cause Message: " + cause.getMessage());
+            }
+
+            // Classify errors
+            String combined = (errDetail + " " + (cause != null && cause.getMessage() != null ? cause.getMessage() : "")).toLowerCase();
+            if (e instanceof org.springframework.mail.MailAuthenticationException || combined.contains("authentication failed") || combined.contains("535") || combined.contains("username and password not accepted")) {
+                System.err.println("DIAGNOSIS: [SMTP Authentication Failure / Invalid App Password] The SMTP credentials were rejected. Please ensure you are using a valid 16-character Gmail App Password instead of your regular account password.");
+            } else if (combined.contains("connect timed out") || combined.contains("timeout") || combined.contains("timed out")) {
+                System.err.println("DIAGNOSIS: [SMTP Timeout] SMTP server connection timed out. Verify your connection/timeouts settings and SMTP port.");
+            } else if (combined.contains("connection refused") || combined.contains("connectrefused") || combined.contains("could not connect")) {
+                System.err.println("DIAGNOSIS: [Connection Refused] Could not connect to the SMTP server. Check mailHost, mailPort, and network firewalls.");
+            } else if (combined.contains("security") || combined.contains("suspicious activity") || combined.contains("blocked")) {
+                System.err.println("DIAGNOSIS: [Gmail Security Rejection] Gmail blocked the connection due to security policies or suspicious login detection.");
+            } else {
+                System.err.println("DIAGNOSIS: [Other/Unknown SMTP Error] Detailed explanation: " + errDetail);
+            }
+            System.err.println("==========================================");
+            
             e.printStackTrace();
             return false;
         } finally {
