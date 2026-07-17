@@ -535,7 +535,7 @@ public class IncidentController {
         if (specMatch) {
             reasons.add("Specialization matches incident category");
         } else {
-            reasons.add("Cross-training opportunity (specialization does not match)");
+            reasons.add("No specialist available. Cross-training recommendation required.");
         }
 
         if (similarResolved > 0) {

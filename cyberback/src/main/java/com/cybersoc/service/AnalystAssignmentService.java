@@ -140,13 +140,28 @@ public class AnalystAssignmentService {
             return null;
         }
 
+        // Step 1 & 2: Filter analysts whose specialization matches the parent specialization of incident's category
+        List<User> specialists = activeAnalysts.stream()
+                .filter(u -> doesSpecializationMatch(incident.getCategory(), u.getSpecialization()))
+                .toList();
+
+        List<User> candidates;
+        boolean hasSpecialist = !specialists.isEmpty();
+        if (hasSpecialist) {
+            // Step 3: Calculate Assignment Score only among matching analysts
+            candidates = specialists;
+        } else {
+            // Step 4: Use cross-training fallback only when no matching specialist exists
+            candidates = activeAnalysts;
+        }
+
         User bestAnalyst = null;
         double maxScore = -1.0;
         long bestWorkload = 999;
         long bestSimilar = 0;
 
         System.out.println("Candidate Scores:");
-        for (User analyst : activeAnalysts) {
+        for (User analyst : candidates) {
             long activeWorkload = incidentRepository.countActiveWorkload(analyst.getUsername());
             long similarResolved = resolvedIncidentRepository.findAll().stream()
                     .filter(r -> analyst.getUsername().equalsIgnoreCase(r.getAssignedAnalyst()) && incident.getCategory().equalsIgnoreCase(r.getCategory()))
@@ -167,16 +182,14 @@ public class AnalystAssignmentService {
 
             boolean specMatch = doesSpecializationMatch(incident.getCategory(), analyst.getSpecialization());
             double specScore = specMatch ? 40.0 : 0.0;
-            double workloadScore = Math.max(0.0, 25.0 - (activeWorkload * 5.0));
+            double workloadScore = Math.max(0.0, 30.0 - (activeWorkload * 6.0));
             double rawPerf = analyst.getPerformanceScore() != null ? analyst.getPerformanceScore() : 0.0;
-            double performanceScore = (rawPerf / 100.0) * 25.0;
-            double bonusScore = calculateBonusScore(incident, analyst);
+            double performanceScoreContribution = (rawPerf / 100.0) * 30.0;
 
             System.out.println("-> Score: " + String.format("%.2f", finalScore) + "% (Spec: " 
                 + String.format("%.1f", specScore) + ", Workload: " 
                 + String.format("%.1f", workloadScore) + ", Perf: " 
-                + String.format("%.1f", performanceScore) + ", Bonus: " 
-                + String.format("%.1f", bonusScore) + ")");
+                + String.format("%.1f", performanceScoreContribution) + ")");
 
             boolean isBetter = false;
             if (finalScore > maxScore) {
@@ -243,14 +256,12 @@ public class AnalystAssignmentService {
         double specScore = specMatch ? 40.0 : 0.0;
 
         long activeWorkload = incidentRepository.countActiveWorkload(analyst.getUsername());
-        double workloadScore = Math.max(0.0, 25.0 - (activeWorkload * 5.0));
+        double workloadScore = Math.max(0.0, 30.0 - (activeWorkload * 6.0));
 
         double rawPerf = analyst.getPerformanceScore() != null ? analyst.getPerformanceScore() : 0.0;
-        double performanceScore = (rawPerf / 100.0) * 25.0;
+        double performanceScore = (rawPerf / 100.0) * 30.0;
 
-        double bonusScore = calculateBonusScore(incident, analyst);
-
-        double totalScore = specScore + workloadScore + performanceScore + bonusScore;
+        double totalScore = specScore + workloadScore + performanceScore;
         return Math.min(100.0, Math.max(0.0, totalScore));
     }
 
@@ -802,41 +813,121 @@ public class AnalystAssignmentService {
         return selected;
     }
 
+    public static String getParentSpecialization(String category) {
+        if (category == null) return "Unknown";
+        String cat = category.trim().toUpperCase();
+        
+        // 1. Malware
+        if (cat.equals("MALWARE") || cat.equals("TROJAN") || cat.equals("VIRUS") || cat.equals("WORM") ||
+            cat.equals("SPYWARE") || cat.equals("ADWARE") || cat.equals("ROOTKIT") || cat.equals("BOTNET") ||
+            cat.equals("REMOTE ACCESS TROJAN (RAT)") || cat.equals("RAT") || cat.equals("ENDPOINT INFECTION") ||
+            cat.equals("SUSPICIOUS EXECUTABLE")) {
+            return "Malware";
+        }
+        // 2. Ransomware
+        if (cat.equals("RANSOMWARE") || cat.equals("FILE ENCRYPTION ATTACK") || cat.equals("CRYPTO MALWARE") ||
+            cat.equals("DOUBLE EXTORTION ATTACK") || cat.equals("RANSOMWARE PAYLOAD")) {
+            return "Ransomware";
+        }
+        // 3. Phishing
+        if (cat.equals("PHISHING") || cat.equals("CREDENTIAL PHISHING") || cat.equals("SPEAR PHISHING") ||
+            cat.equals("BUSINESS EMAIL COMPROMISE (BEC)") || cat.equals("BEC") || cat.equals("EMAIL SPOOFING") ||
+            cat.equals("FAKE INVOICE EMAIL") || cat.equals("FAKE LOGIN PAGE") || cat.equals("MICROSOFT 365 PHISHING") ||
+            cat.equals("CEO FRAUD")) {
+            return "Phishing";
+        }
+        // 4. Web Security
+        if (cat.equals("SQL INJECTION") || cat.equals("CROSS-SITE SCRIPTING (XSS)") || cat.equals("XSS") ||
+            cat.equals("CSRF") || cat.equals("COMMAND INJECTION") || cat.equals("REMOTE CODE EXECUTION (RCE)") ||
+            cat.equals("RCE") || cat.equals("DIRECTORY TRAVERSAL") || cat.equals("FILE UPLOAD VULNERABILITY") ||
+            cat.equals("IDOR") || cat.equals("BROKEN AUTHENTICATION") || cat.equals("OWASP TOP 10") ||
+            cat.equals("WEB APPLICATION ATTACK")) {
+            return "Web Security";
+        }
+        // 5. Network Security
+        if (cat.equals("FIREWALL ALERT") || cat.equals("IDS ALERT") || cat.equals("IPS ALERT") ||
+            cat.equals("NETWORK INTRUSION") || cat.equals("DDOS ATTACK") || cat.equals("PORT SCANNING") ||
+            cat.equals("NETWORK MONITORING ALERT") || cat.equals("VPN ATTACK") || cat.equals("SUSPICIOUS TRAFFIC")) {
+            return "Network Security";
+        }
+        // 6. Identity & Access
+        if (cat.equals("MFA BYPASS") || cat.equals("ACCOUNT TAKEOVER") || cat.equals("PASSWORD SPRAY") ||
+            cat.equals("BRUTE FORCE LOGIN") || cat.equals("PRIVILEGE ESCALATION") || cat.equals("ACTIVE DIRECTORY ATTACK") ||
+            cat.equals("AZURE AD COMPROMISE") || cat.equals("UNAUTHORIZED ACCESS")) {
+            return "Identity & Access";
+        }
+        // 7. Endpoint Security
+        if (cat.equals("ENDPOINT DETECTION ALERT") || cat.equals("DEVICE COMPROMISE") || cat.equals("SUSPICIOUS PROCESS") ||
+            cat.equals("HOST INTRUSION") || cat.equals("UNAUTHORIZED SOFTWARE INSTALLATION")) {
+            return "Endpoint Security";
+        }
+        // 8. Cloud Security
+        if (cat.equals("CLOUD MISCONFIGURATION") || cat.equals("AWS SECURITY ALERT") || cat.equals("AZURE SECURITY ALERT") ||
+            cat.equals("CLOUD DATA EXPOSURE") || cat.equals("IAM CLOUD ISSUE")) {
+            return "Cloud Security";
+        }
+        // 9. Data Security
+        if (cat.equals("DATA LEAKAGE") || cat.equals("DATA EXFILTRATION") || cat.equals("SENSITIVE DATA EXPOSURE") ||
+            cat.equals("DATABASE BREACH")) {
+            return "Data Security";
+        }
+        // 10. Insider Threat
+        if (cat.equals("INSIDER THREAT") || cat.equals("UNAUTHORIZED EMPLOYEE ACTIVITY") || cat.equals("DATA THEFT BY EMPLOYEE")) {
+            return "Insider Threat";
+        }
+
+        // Loose checks to make it highly robust:
+        String catClean = cat.replaceAll("[^A-Z0-9]", "");
+        if (catClean.contains("RANSOMWARE") || catClean.contains("FILEENCRYPTION")) return "Ransomware";
+        if (catClean.contains("MALWARE") || catClean.contains("TROJAN") || catClean.contains("VIRUS") || catClean.contains("WORM") || catClean.contains("SPYWARE") || catClean.contains("BOTNET") || catClean.contains("RAT")) return "Malware";
+        if (catClean.contains("PHISH") || catClean.contains("SPEAR") || catClean.contains("SPOOF") || catClean.contains("BEC") || catClean.contains("CEOFRAUD")) return "Phishing";
+        if (catClean.contains("SQL") || catClean.contains("XSS") || catClean.contains("CSRF") || catClean.contains("INJECTION") || catClean.contains("REMOTECODE") || catClean.contains("RCE") || catClean.contains("OWASP") || catClean.contains("WEB")) return "Web Security";
+        if (catClean.contains("FIREWALL") || catClean.contains("IDS") || catClean.contains("IPS") || catClean.contains("INTRUSION") || catClean.contains("DDOS") || catClean.contains("PORTSCAN") || catClean.contains("TRAFFIC") || catClean.contains("VPN")) return "Network Security";
+        if (catClean.contains("MFA") || catClean.contains("TAKEOVER") || catClean.contains("SPRAY") || catClean.contains("BRUTE") || catClean.contains("PRIVILEGE") || catClean.contains("ACTIVEDIRECTORY") || catClean.contains("AD") || catClean.contains("ACCESS")) return "Identity & Access";
+        if (catClean.contains("ENDPOINT") || catClean.contains("DEVICECOMPROMISE") || catClean.contains("SUSPICIOUSPROCESS") || catClean.contains("HOSTINTRUSION") || catClean.contains("SOFTWARE")) return "Endpoint Security";
+        if (catClean.contains("CLOUD") || catClean.contains("AWS") || catClean.contains("AZURE") || catClean.contains("IAM")) return "Cloud Security";
+        if (catClean.contains("DATA") || catClean.contains("LEAK") || catClean.contains("EXFILTRATION") || catClean.contains("DATABASE")) return "Data Security";
+        if (catClean.contains("INSIDER") || catClean.contains("EMPLOYEE")) return "Insider Threat";
+
+        return "Unknown";
+    }
+
     public static boolean doesSpecializationMatch(String category, String specialization) {
         if (category == null || specialization == null) {
             return false;
         }
-        String cat = category.toUpperCase().trim();
+        String parentSpec = getParentSpecialization(category);
         String spec = specialization.toUpperCase().trim();
 
-        if (cat.equals(spec)) {
+        String parentSpecUpper = parentSpec.toUpperCase().trim();
+        if (parentSpecUpper.equals(spec)) {
             return true;
         }
 
-        switch (cat) {
-            case "MALWARE":
-                return "MALWARE".equals(spec);
-            case "PHISHING":
-                return "PHISHING".equals(spec);
-            case "RANSOMWARE":
-                return "RANSOMWARE".equals(spec);
-            case "WEB_SECURITY":
-            case "WEB_ATTACK":
-                return "WEB SECURITY".equals(spec) || "WEB ATTACK".equals(spec);
-            case "DATA_BREACH":
-                return "DATA SECURITY".equals(spec) || "DATA BREACH".equals(spec);
-            case "NETWORK":
-            case "NETWORK_SECURITY":
-                return "NETWORK SECURITY".equals(spec) || "NETWORK".equals(spec);
-            case "EMAIL_SECURITY":
-                return "EMAIL SECURITY".equals(spec);
-            case "IDENTITY_ACCESS":
-                return "IDENTITY & ACCESS".equals(spec) || "IDENTITY AND ACCESS".equals(spec) || "IDENTITY_ACCESS".equals(spec);
-            case "ENDPOINT_SECURITY":
-                return "ENDPOINT SECURITY".equals(spec);
-            default:
-                return cat.equalsIgnoreCase(spec);
+        // Handle possible alias mappings for the database representation
+        if ("IDENTITY & ACCESS".equalsIgnoreCase(parentSpec)) {
+            return "IDENTITY & ACCESS".equals(spec) || "IDENTITY AND ACCESS".equals(spec) || "IDENTITY_ACCESS".equals(spec);
         }
+        if ("WEB SECURITY".equalsIgnoreCase(parentSpec)) {
+            return "WEB SECURITY".equals(spec) || "WEB_SECURITY".equals(spec) || "WEB ATTACK".equals(spec) || "WEB_ATTACK".equals(spec);
+        }
+        if ("NETWORK SECURITY".equalsIgnoreCase(parentSpec)) {
+            return "NETWORK SECURITY".equals(spec) || "NETWORK_SECURITY".equals(spec) || "NETWORK".equals(spec);
+        }
+        if ("DATA SECURITY".equalsIgnoreCase(parentSpec)) {
+            return "DATA SECURITY".equals(spec) || "DATA_SECURITY".equals(spec) || "DATA_BREACH".equals(spec) || "DATA BREACH".equals(spec);
+        }
+        if ("ENDPOINT SECURITY".equalsIgnoreCase(parentSpec)) {
+            return "ENDPOINT SECURITY".equals(spec) || "ENDPOINT_SECURITY".equals(spec);
+        }
+        if ("CLOUD SECURITY".equalsIgnoreCase(parentSpec)) {
+            return "CLOUD SECURITY".equals(spec) || "CLOUD_SECURITY".equals(spec);
+        }
+        if ("INSIDER THREAT".equalsIgnoreCase(parentSpec)) {
+            return "INSIDER THREAT".equals(spec) || "INSIDER_THREAT".equals(spec);
+        }
+
+        return parentSpec.equalsIgnoreCase(specialization);
     }
 
     public void syncAnalystStats(User analyst) {
