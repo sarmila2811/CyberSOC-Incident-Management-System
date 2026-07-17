@@ -394,6 +394,9 @@ public class LocalAiInvestigationService {
     ) {
         AttackPattern pattern = classify(category, title, description, analystNotes, resolutionSummary);
         int seed = Math.abs(title != null ? title.hashCode() : 0);
+        boolean isMalwareCat = (category != null && category.toUpperCase().contains("MALWARE")) || 
+                               (pattern.name().startsWith("MALWARE")) || 
+                               (pattern == AttackPattern.GENERIC_MALWARE);
         
         Map<String, String> analysis = new HashMap<>();
         List<String> extracted = new java.util.ArrayList<>();
@@ -575,11 +578,75 @@ public class LocalAiInvestigationService {
         String suggestedPriority = priority != null ? priority : "Medium";
         String nextAction = "";
         
-        switch (pattern) {
-            case PHISHING_DHL:
-            case PHISHING_TEAMS:
-            case PHISHING_ADOBE:
-            case PHISHING_SHAREPOINT:
+        if (isMalwareCat) {
+            String malwareName = category != null ? category : "Malware";
+            if (pattern == AttackPattern.MALWARE_RANSOMWARE) malwareName = "Ransomware";
+            else if (pattern == AttackPattern.MALWARE_TROJAN) malwareName = "Trojan";
+            else if (pattern == AttackPattern.MALWARE_SPYWARE) malwareName = "Spyware";
+            else if (pattern == AttackPattern.MALWARE_WORM) malwareName = "Worm";
+            else if (pattern == AttackPattern.MALWARE_KEYLOGGER) malwareName = "Keylogger";
+            
+            execSummary = "A " + malwareName + " incident was identified on target device associated with user " + userSec + ". " +
+                          "The threat agent attempts local unauthorized execution and persistence setup. " +
+                          "The incident is assigned to analyst " + (assignedAnalyst != null ? assignedAnalyst : "SOC Triage") + " and is undergoing active security review.";
+            
+            classification = "Category: Malware\nPattern: " + malwareName + "\nFidelity: High";
+            
+            mitre = "- Execution: Command and Scripting Interpreter (T1059)\n" +
+                    "- Persistence: Registry Run Keys / Startup Folder (T1547.001)\n" +
+                    "- Privilege Escalation: Process Injection (T1055)\n" +
+                    "- Defense Evasion: Indicator Removal on Host (T1070)\n" +
+                    "- Command and Control: Application Layer Protocol (T1071)\n" +
+                    "- Discovery: Process Discovery (T1057)\n" +
+                    "- Lateral Movement: Lateral Tool Transfer (T1570)";
+            
+            rootCause = "Execution of untrusted software payload or malicious email attachment.";
+            
+            techFindings = "Technical Details: Anomalous executable activity detected. " +
+                           "System logs indicate processes attempting to run from user space folders (AppData/Temp) or registry run modifications.";
+            
+            steps = new ArrayList<>(Arrays.asList(
+                "Identify running process, parent process ID, and executable path.",
+                "Extract SHA256/MD5 hash of the threat file.",
+                "Inspect registry persistence run keys and scheduled tasks.",
+                "Check active network connections and block any destination C2 IP.",
+                "Query EDR logs, Windows Event logs, and Sysmon event telemetry."
+            ));
+            
+            containment = new ArrayList<>(Arrays.asList(
+                "Isolate endpoint from corporate network segments.",
+                "Kill the malicious running process threads.",
+                "Quarantine the threat executable file."
+            ));
+            
+            eradication = new ArrayList<>(Arrays.asList(
+                "Remove registry persistence keys and scheduled tasks.",
+                "Run a full EDR/Antivirus scan on the target system."
+            ));
+            
+            recovery = new ArrayList<>(Arrays.asList(
+                "Collect memory dump for deeper offline analysis.",
+                "Block malicious IOC hash at firewall/mail gateways.",
+                "Verify lateral movement attempts on adjacent devices."
+            ));
+            
+            if (baseSeverityScore >= 85) {
+                impact = "Critical severity threat: Highly disruptive. High risk of system encryption, file loss, lateral network pivoting, and disruption of critical business services.";
+            } else if (baseSeverityScore >= 70) {
+                impact = "High severity threat: Significant risk. Local system compromise, potential unauthorized credential harvesting, and network scanning activity.";
+            } else {
+                impact = "Medium/Low severity threat: Low/localized risk. Isolated malware execution with minimal system impact.";
+            }
+            
+            decisionReminder = "Verify if EDR has successfully blocked execution before proceeding with manual isolation.";
+            aiRecommendation = "Immediate containment: Network isolate endpoint, terminate processes, and perform full system remediation.";
+            nextAction = "Network isolate the affected machine and kill running processes.";
+        } else {
+            switch (pattern) {
+                case PHISHING_DHL:
+                case PHISHING_TEAMS:
+                case PHISHING_ADOBE:
+                case PHISHING_SHAREPOINT:
             case PHISHING_HR:
             case PHISHING_ONEDRIVE:
             case PHISHING_OUTLOOK:
@@ -824,6 +891,7 @@ public class LocalAiInvestigationService {
                 aiRecommendation = "Investigate event context manually, trace host process trees, and verify target permissions.";
                 nextAction = "Manual analyst triage and log correlation.";
         }
+        }
         
         // Enforce dynamic calculations of severity score and risk level
         baseSeverityScore = calculateDynamicSeverity(priority, totalIocs, hasCredHarvest, hasMacro, department, outcome, hasMalware, reportedBy, hasNetworkEvidence);
@@ -884,21 +952,51 @@ public class LocalAiInvestigationService {
         StringBuilder evSummary = new StringBuilder();
         evSummary.append("Evidence Summary\n");
         evSummary.append("Artifact | Status | Detail\n");
-        evSummary.append("Sender | ").append(evidence.email != null ? "Available" : "Not Observed").append(" | ").append(evidence.email != null ? evidence.email : "-").append("\n");
-        evSummary.append("Domain | ").append(evidence.domain != null ? "Available" : "Not Observed").append(" | ").append(evidence.domain != null ? evidence.domain : "-").append("\n");
-        evSummary.append("URL | ").append(evidence.url != null ? "Available" : "Not Observed").append(" | ").append(evidence.url != null ? evidence.url : "-").append("\n");
-        evSummary.append("DNS Logs | ").append(evidence.domain != null ? "Available" : "Not Observed").append(" | ").append(evidence.domain != null ? "Resolved queries to " + evidence.domain : "-").append("\n");
-        evSummary.append("Proxy Logs | ").append(evidence.domain != null ? "Available" : "Not Observed").append(" | ").append(evidence.domain != null ? "Sessions to " + evidence.domain + " tracked" : "-").append("\n");
-        
-        boolean authAvailable = (outcome == IncidentOutcome.CONFIRMED_COMPROMISE);
-        evSummary.append("Authentication Logs | ").append(authAvailable ? "Available" : "Not Observed").append(" | ").append(authAvailable ? "Successful logon events detected" : "-").append("\n");
-        
         List<String> hashes = extractHashes(description, analystNotes, resolutionSummary);
-        boolean hashAvailable = (!hashes.isEmpty() || evidence.filename != null);
-        String hashDetail = !hashes.isEmpty() ? hashes.get(0) : (evidence.filename != null ? evidence.filename : "-");
-        evSummary.append("Attachment Hash | ").append(hashAvailable ? "Available" : "Not Observed").append(" | ").append(hashDetail).append("\n");
-        
-        evSummary.append("Endpoint Telemetry | ").append(authAvailable ? "Available" : "Not Observed").append(" | ").append(authAvailable ? "Session activity logged" : "-");
+        if (isMalwareCat) {
+            String processName = extractField(lowercaseContext, "process", "running process");
+            String processId = extractField(lowercaseContext, "pid", "process id");
+            String execPath = extractField(lowercaseContext, "path", "executable path");
+            String hashVal = !hashes.isEmpty() ? hashes.get(0) : (evidence.filename != null ? evidence.filename : null);
+            String regPersist = !extractRegistryKeys(description, analystNotes, resolutionSummary).isEmpty() ? extractRegistryKeys(description, analystNotes, resolutionSummary).get(0) : null;
+            String schedTask = extractField(lowercaseContext, "scheduled task", "cron");
+            String serviceName = extractField(lowercaseContext, "service", "systemd");
+            String netConn = extractField(lowercaseContext, "connection", "port");
+            String srcIp = evidence.ipAddress;
+            String destIp = extractField(lowercaseContext, "destination ip", "c2 ip");
+            String edrDet = extractField(lowercaseContext, "edr", "defender");
+            String winEvt = extractField(lowercaseContext, "event log", "event");
+            String sysmonEvt = extractField(lowercaseContext, "sysmon", "event id");
+
+            evSummary.append("Running Process | ").append(processName != null ? "Available" : "Not Available").append(" | ").append(processName != null ? processName : "-").append("\n");
+            evSummary.append("Process ID | ").append(processId != null ? "Available" : "Not Available").append(" | ").append(processId != null ? processId : "-").append("\n");
+            evSummary.append("Executable Path | ").append(execPath != null ? "Available" : "Not Available").append(" | ").append(execPath != null ? execPath : "-").append("\n");
+            evSummary.append("SHA256/MD5 Hash | ").append(hashVal != null ? "Available" : "Not Available").append(" | ").append(hashVal != null ? hashVal : "-").append("\n");
+            evSummary.append("Registry Persistence | ").append(regPersist != null ? "Available" : "Not Available").append(" | ").append(regPersist != null ? regPersist : "-").append("\n");
+            evSummary.append("Scheduled Tasks | ").append(schedTask != null ? "Available" : "Not Available").append(" | ").append(schedTask != null ? schedTask : "-").append("\n");
+            evSummary.append("Services | ").append(serviceName != null ? "Available" : "Not Available").append(" | ").append(serviceName != null ? serviceName : "-").append("\n");
+            evSummary.append("Network Connections | ").append(netConn != null ? "Available" : "Not Available").append(" | ").append(netConn != null ? netConn : "-").append("\n");
+            evSummary.append("Source IP | ").append(srcIp != null ? "Available" : "Not Available").append(" | ").append(srcIp != null ? srcIp : "-").append("\n");
+            evSummary.append("Destination IP | ").append(destIp != null ? "Available" : "Not Available").append(" | ").append(destIp != null ? destIp : "-").append("\n");
+            evSummary.append("EDR Detection | ").append(edrDet != null ? "Available" : "Not Available").append(" | ").append(edrDet != null ? edrDet : "-").append("\n");
+            evSummary.append("Windows Event Logs | ").append(winEvt != null ? "Available" : "Not Available").append(" | ").append(winEvt != null ? winEvt : "-").append("\n");
+            evSummary.append("Sysmon Events | ").append(sysmonEvt != null ? "Available" : "Not Available").append(" | ").append(sysmonEvt != null ? sysmonEvt : "-");
+        } else {
+            evSummary.append("Sender | ").append(evidence.email != null ? "Available" : "Not Available").append(" | ").append(evidence.email != null ? evidence.email : "-").append("\n");
+            evSummary.append("Domain | ").append(evidence.domain != null ? "Available" : "Not Available").append(" | ").append(evidence.domain != null ? evidence.domain : "-").append("\n");
+            evSummary.append("URL | ").append(evidence.url != null ? "Available" : "Not Available").append(" | ").append(evidence.url != null ? evidence.url : "-").append("\n");
+            evSummary.append("DNS Logs | ").append(evidence.domain != null ? "Available" : "Not Available").append(" | ").append(evidence.domain != null ? "Resolved queries to " + evidence.domain : "-").append("\n");
+            evSummary.append("Proxy Logs | ").append(evidence.domain != null ? "Available" : "Not Available").append(" | ").append(evidence.domain != null ? "Sessions to " + evidence.domain + " tracked" : "-").append("\n");
+            
+            boolean authAvailable = (outcome == IncidentOutcome.CONFIRMED_COMPROMISE);
+            evSummary.append("Authentication Logs | ").append(authAvailable ? "Available" : "Not Available").append(" | ").append(authAvailable ? "Successful logon events detected" : "-").append("\n");
+            
+            boolean hashAvailable = (!hashes.isEmpty() || evidence.filename != null);
+            String hashDetail = !hashes.isEmpty() ? hashes.get(0) : (evidence.filename != null ? evidence.filename : "-");
+            evSummary.append("Attachment Hash | ").append(hashAvailable ? "Available" : "Not Available").append(" | ").append(hashDetail).append("\n");
+            
+            evSummary.append("Endpoint Telemetry | ").append(authAvailable ? "Available" : "Not Available").append(" | ").append(authAvailable ? "Session activity logged" : "-");
+        }
 
         // 12 UI Sections assembly
 
@@ -942,38 +1040,67 @@ public class LocalAiInvestigationService {
         String sec9 = "Business Impact\n" + impact;
 
         // 10. Risk Assessment
+        String severityWord = "Medium";
+        if (baseSeverityScore >= 85) {
+            severityWord = "Critical";
+        } else if (baseSeverityScore >= 70) {
+            severityWord = "High";
+        } else if (baseSeverityScore < 40) {
+            severityWord = "Low";
+        }
+
         StringBuilder riskAss = new StringBuilder();
         riskAss.append("Risk Assessment\n");
         riskAss.append("Risk Score: ").append(baseSeverityScore).append("/100\n");
         riskAss.append("Explanation: Score is determined by incident category ").append(category != null ? category : "Phishing");
         if (totalIocs > 0) riskAss.append(", presence of ").append(totalIocs).append(" indicator(s)");
-        if (outcome == IncidentOutcome.CONFIRMED_COMPROMISE) {
-            riskAss.append(", confirmed credential theft indicators, and successful authentication anomalies");
-        } else if (outcome == IncidentOutcome.USER_INTERACTION_ONLY) {
-            riskAss.append(", user interaction only, and lack of authentication anomalies");
+        if (isMalwareCat) {
+            riskAss.append(", and malware severity classified as ").append(severityWord);
         } else {
-            riskAss.append(", unconfirmed interaction status, and no observed credential compromise");
+            if (outcome == IncidentOutcome.CONFIRMED_COMPROMISE) {
+                riskAss.append(", confirmed credential theft indicators, and successful authentication anomalies");
+            } else if (outcome == IncidentOutcome.USER_INTERACTION_ONLY) {
+                riskAss.append(", user interaction only, and lack of authentication anomalies");
+            } else {
+                riskAss.append(", unconfirmed interaction status, and no observed credential compromise");
+            }
+            if (hasMacro) riskAss.append(", and potential macro malware indicators");
         }
-        if (hasMacro) riskAss.append(", and potential macro malware indicators");
         String sec10 = riskAss.toString();
 
         // 11. AI Recommendation (grouped)
         StringBuilder aiRec = new StringBuilder();
-        aiRec.append("AI Recommendation\n");
-        aiRec.append("Immediate Actions:\n");
-        if (outcome == IncidentOutcome.CONFIRMED_COMPROMISE) {
-            aiRec.append("- Reset password for User: ").append(userSec).append("\n");
-            aiRec.append("- Revoke active logon sessions for User: ").append(userSec).append("\n");
+        if (isMalwareCat) {
+            aiRec.append("AI Recommendation\n");
+            aiRec.append("Immediate Actions:\n");
+            aiRec.append("- Isolate Endpoint: ").append(primaryIP != null && !primaryIP.equals("Not available") ? primaryIP : (primaryUser != null && !primaryUser.equals("Not available") ? primaryUser : "Not Available")).append("\n");
+            aiRec.append("- Kill Malicious Process\n");
+            aiRec.append("- Quarantine File: ").append(evidence.filename != null ? evidence.filename : "Not Available").append("\n");
+            aiRec.append("Short-Term Actions:\n");
+            aiRec.append("- Remove Persistence\n");
+            aiRec.append("- Run Full EDR Scan\n");
+            aiRec.append("- Collect Memory Dump\n");
+            aiRec.append("Long-Term Actions:\n");
+            aiRec.append("- Block IOC Hash: ").append(!hashes.isEmpty() ? hashes.get(0) : "Not Available").append("\n");
+            aiRec.append("- Block C2 IP: ").append(primaryIP != null && !primaryIP.equals("Not available") ? primaryIP : "Not Available").append("\n");
+            aiRec.append("- Verify Lateral Movement");
         } else {
-            aiRec.append("- Block sender: ").append(emailSec).append("\n");
-            aiRec.append("- Block domain: ").append(domainSec).append("\n");
+            aiRec.append("AI Recommendation\n");
+            aiRec.append("Immediate Actions:\n");
+            if (outcome == IncidentOutcome.CONFIRMED_COMPROMISE) {
+                aiRec.append("- Reset password for User: ").append(userSec).append("\n");
+                aiRec.append("- Revoke active logon sessions for User: ").append(userSec).append("\n");
+            } else {
+                aiRec.append("- Block sender: ").append(emailSec).append("\n");
+                aiRec.append("- Block domain: ").append(domainSec).append("\n");
+            }
+            aiRec.append("Short-Term Actions:\n");
+            aiRec.append("- Review Azure AD logs for User: ").append(userSec).append("\n");
+            aiRec.append("- Review Defender alerts\n");
+            aiRec.append("Long-Term Actions:\n");
+            aiRec.append("- Enforce multi-factor authentication (MFA)\n");
+            aiRec.append("- Deploy user security awareness training regarding ").append(brand).append(" lures");
         }
-        aiRec.append("Short-Term Actions:\n");
-        aiRec.append("- Review Azure AD logs for User: ").append(userSec).append("\n");
-        aiRec.append("- Review Defender alerts\n");
-        aiRec.append("Long-Term Actions:\n");
-        aiRec.append("- Enforce multi-factor authentication (MFA)\n");
-        aiRec.append("- Deploy user security awareness training regarding ").append(brand).append(" lures");
         String sec11 = aiRec.toString();
 
         // 12. Incident Assessment
@@ -999,7 +1126,9 @@ public class LocalAiInvestigationService {
         }
 
         String decisionVal = "Continue Monitoring";
-        if (outcome == IncidentOutcome.CONFIRMED_COMPROMISE) {
+        if (baseSeverityScore >= 80) {
+            decisionVal = "Immediate Containment Required";
+        } else if (outcome == IncidentOutcome.CONFIRMED_COMPROMISE) {
             decisionVal = "Remediate and Close";
         }
 
@@ -1533,5 +1662,17 @@ public class LocalAiInvestigationService {
         }
         
         return t;
+    }
+
+    private String extractField(String context, String keyword, String displayKeyword) {
+        if (context == null || context.isEmpty()) return null;
+        int idx = context.indexOf(keyword.toLowerCase());
+        if (idx != -1) {
+            int start = Math.max(0, idx - 10);
+            int end = Math.min(context.length(), idx + keyword.length() + 30);
+            String snippet = context.substring(start, end).trim();
+            return "Observed: ..." + snippet.replace("\n", " ").replace("\r", " ") + "...";
+        }
+        return null;
     }
 }
