@@ -129,21 +129,44 @@ public class AuthController {
 
         if (userOpt.isEmpty()) {
             auditService.log("anonymous", "PASSWORD RESET REQUESTED FAIL", null, null, null, "No account registered with email: " + email);
-            return ResponseEntity.badRequest().body(Map.of("message", "No account registered with this email"));
+            System.err.println("[Forgot Password Workflow] No account registered with email: " + email);
+            return ResponseEntity.status(400).body(Map.of(
+                "success", false,
+                "message", "No account found with this email address."
+            ));
         }
 
         try {
+            System.out.println("[Forgot Password Workflow] Initiating OTP generation for: " + email);
             String otp = otpService.generateOtp(email);
             boolean sent = emailService.sendPasswordResetOtp(email, otp);
             if (!sent) {
-                return ResponseEntity.status(400).body(Map.of("message", "Unable to send reset OTP email. SMTP service failure or timeout occurred. Please try again later."));
+                System.err.println("[Forgot Password Workflow] Failed to send email via SMTP to: " + email);
+                return ResponseEntity.status(400).body(Map.of(
+                    "success", false,
+                    "message", "Unable to send reset OTP email. SMTP service failure or timeout occurred. Please try again later."
+                ));
             }
             auditService.log(userOpt.get().getUsername(), "PASSWORD RESET REQUESTED", null, null, null, "OTP verification sent to " + email);
-            return ResponseEntity.ok(Map.of("message", "Password reset OTP sent to " + email));
+            System.out.println("[Forgot Password Workflow] OTP sent successfully to: " + email);
+            return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "Password reset OTP sent to " + email
+            ));
         } catch (IllegalStateException e) {
-            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
+            System.err.println("[Forgot Password Workflow] Attempt restriction: " + e.getMessage());
+            return ResponseEntity.badRequest().body(Map.of(
+                "success", false,
+                "message", e.getMessage()
+            ));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body(Map.of("message", "Error sending reset OTP"));
+            System.err.println("[Forgot Password Workflow] Unhandled exception: " + e.getMessage());
+            e.printStackTrace();
+            return ResponseEntity.status(500).body(Map.of(
+                "success", false,
+                "message", "Error sending reset OTP.",
+                "reason", e.getMessage() != null ? e.getMessage() : e.toString()
+            ));
         }
     }
 
