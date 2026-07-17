@@ -63,40 +63,53 @@ public class ReportController {
         }
         allResolvedRaw = filterUniqueResolvedIncidents(allResolvedRaw);
 
-        String role = "";
-        String spec = "";
-        if (assignedTo != null && !assignedTo.trim().isEmpty()) {
-            java.util.Optional<User> uOpt = userRepository.findByUsername(assignedTo);
+        org.springframework.security.core.Authentication auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        String currentUsername = (auth != null && auth.isAuthenticated()) ? auth.getName() : null;
+        String userRole = "ADMIN";
+        String userSpec = "";
+
+        if (currentUsername != null) {
+            java.util.Optional<User> uOpt = userRepository.findByUsername(currentUsername);
             if (uOpt.isPresent()) {
-                role = "ANALYST";
-                spec = uOpt.get().getSpecialization();
+                User u = uOpt.get();
+                userRole = u.getRole() != null ? u.getRole().toUpperCase() : "ADMIN";
+                userSpec = u.getSpecialization();
             }
-        } else if (reportedBy != null && !reportedBy.trim().isEmpty()) {
-            role = "EMPLOYEE";
         }
 
-        final String finalRole = role;
-        final String finalSpec = spec;
-        final String finalUser = (assignedTo != null && !assignedTo.trim().isEmpty()) ? assignedTo : reportedBy;
+        final String finalRole = userRole;
+        final String finalUser = currentUsername;
 
         List<Incident> activeIncidents = allActiveRaw.stream().filter(inc -> {
             if ("ANALYST".equals(finalRole)) {
-                boolean isAssignedToMe = finalUser.equalsIgnoreCase(inc.getAssignedTo());
-                boolean isSpecializationMatch = com.cybersoc.service.AnalystAssignmentService.doesSpecializationMatch(inc.getCategory(), finalSpec);
-                return isAssignedToMe || isSpecializationMatch;
+                return finalUser != null && finalUser.equalsIgnoreCase(inc.getAssignedTo());
             } else if ("EMPLOYEE".equals(finalRole)) {
-                return finalUser.equalsIgnoreCase(inc.getReportedBy());
+                return finalUser != null && finalUser.equalsIgnoreCase(inc.getReportedBy());
+            }
+            if ("ADMIN".equals(finalRole)) {
+                if (assignedTo != null && !assignedTo.trim().isEmpty()) {
+                    return assignedTo.equalsIgnoreCase(inc.getAssignedTo());
+                }
+                if (reportedBy != null && !reportedBy.trim().isEmpty()) {
+                    return reportedBy.equalsIgnoreCase(inc.getReportedBy());
+                }
             }
             return true;
         }).toList();
 
         List<ResolvedIncident> resolvedIncidents = allResolvedRaw.stream().filter(inc -> {
             if ("ANALYST".equals(finalRole)) {
-                boolean isAssignedToMe = finalUser.equalsIgnoreCase(inc.getAssignedAnalyst());
-                boolean isSpecializationMatch = com.cybersoc.service.AnalystAssignmentService.doesSpecializationMatch(inc.getCategory(), finalSpec);
-                return isAssignedToMe || isSpecializationMatch;
+                return finalUser != null && finalUser.equalsIgnoreCase(inc.getAssignedAnalyst());
             } else if ("EMPLOYEE".equals(finalRole)) {
-                return finalUser.equalsIgnoreCase(inc.getReportedBy());
+                return finalUser != null && finalUser.equalsIgnoreCase(inc.getReportedBy());
+            }
+            if ("ADMIN".equals(finalRole)) {
+                if (assignedTo != null && !assignedTo.trim().isEmpty()) {
+                    return assignedTo.equalsIgnoreCase(inc.getAssignedAnalyst());
+                }
+                if (reportedBy != null && !reportedBy.trim().isEmpty()) {
+                    return reportedBy.equalsIgnoreCase(inc.getReportedBy());
+                }
             }
             return true;
         }).toList();
@@ -413,7 +426,23 @@ public class ReportController {
     // ================= GET REPORT HISTORY =================
     @GetMapping("/history")
     public ResponseEntity<List<ReportHistory>> getReportHistory() {
-        return ResponseEntity.ok(reportHistoryRepository.findAll());
+        org.springframework.security.core.Authentication auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        String currentUsername = (auth != null && auth.isAuthenticated()) ? auth.getName() : null;
+        
+        List<ReportHistory> allHistory = reportHistoryRepository.findAll();
+        if (currentUsername != null) {
+            java.util.Optional<User> uOpt = userRepository.findByUsername(currentUsername);
+            if (uOpt.isPresent()) {
+                User u = uOpt.get();
+                String role = u.getRole() != null ? u.getRole().toUpperCase() : "ADMIN";
+                if (!"ADMIN".equals(role)) {
+                    allHistory = allHistory.stream()
+                            .filter(h -> currentUsername.equalsIgnoreCase(h.getGeneratedBy()))
+                            .toList();
+                }
+            }
+        }
+        return ResponseEntity.ok(allHistory);
     }
 
     private List<Incident> filterUniqueIncidents(List<Incident> list) {

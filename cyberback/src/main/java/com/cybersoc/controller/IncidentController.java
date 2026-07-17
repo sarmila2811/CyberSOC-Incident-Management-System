@@ -76,6 +76,48 @@ public class IncidentController {
         return LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
     }
 
+    private List<Incident> getIncidentsForCurrentUser() {
+        org.springframework.security.core.Authentication auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.isAuthenticated()) {
+            String currentUsername = auth.getName();
+            java.util.Optional<User> userOpt = userRepository.findByUsername(currentUsername);
+            if (userOpt.isPresent()) {
+                User user = userOpt.get();
+                String role = user.getRole() != null ? user.getRole().toUpperCase() : "";
+                if ("ADMIN".equals(role)) {
+                    return service.getIncidentsForAdmin();
+                } else if ("ANALYST".equals(role)) {
+                    return service.getIncidentsForAnalyst(currentUsername);
+                } else if ("EMPLOYEE".equals(role)) {
+                    return service.getIncidentsForEmployee(currentUsername);
+                }
+            }
+        }
+        return new java.util.ArrayList<>();
+    }
+
+    private boolean isAuthorizedForIncident(Incident incident) {
+        if (incident == null) return false;
+        org.springframework.security.core.Authentication auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) {
+            return false;
+        }
+        String currentUsername = auth.getName();
+        java.util.Optional<User> userOpt = userRepository.findByUsername(currentUsername);
+        if (userOpt.isPresent()) {
+            User user = userOpt.get();
+            String role = user.getRole() != null ? user.getRole().toUpperCase() : "";
+            if ("ADMIN".equals(role)) {
+                return true;
+            } else if ("ANALYST".equals(role)) {
+                return currentUsername.equalsIgnoreCase(incident.getAssignedTo());
+            } else if ("EMPLOYEE".equals(role)) {
+                return currentUsername.equalsIgnoreCase(incident.getReportedBy());
+            }
+        }
+        return false;
+    }
+
     private LocalDateTime parseDateTime(String dtStr) {
         if (dtStr == null || dtStr.trim().isEmpty()) {
             return null;
@@ -231,41 +273,11 @@ public class IncidentController {
     // ================= GET ALL (ACTIVE + RESOLVED) =================
     @GetMapping
     public List<IncidentSummaryDTO> getAll(@RequestParam(required = false) Integer limit) {
-        List<Incident> activeIncidents = service.getAll();
+        List<Incident> activeIncidents = getIncidentsForCurrentUser();
         activeIncidents.forEach(this::syncDescriptionDepartment);
         activeIncidents.forEach(this::updateSlaStatus);
         
-        List<Incident> filtered;
-        org.springframework.security.core.Authentication auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
-        if (auth != null && auth.isAuthenticated()) {
-            String currentUsername = auth.getName();
-            java.util.Optional<User> userOpt = userRepository.findByUsername(currentUsername);
-            if (userOpt.isPresent()) {
-                User user = userOpt.get();
-                String role = user.getRole() != null ? user.getRole().toUpperCase() : "";
-                if ("ANALYST".equals(role)) {
-                    String spec = user.getSpecialization();
-                    filtered = filterUniqueIncidents(activeIncidents.stream().filter(inc -> {
-                        boolean isAssignedToMe = currentUsername.equalsIgnoreCase(inc.getAssignedTo());
-                        boolean isSpecializationMatch = com.cybersoc.service.AnalystAssignmentService.doesSpecializationMatch(inc.getCategory(), spec);
-                        return isAssignedToMe || isSpecializationMatch;
-                    }).toList());
-                    List<IncidentSummaryDTO> list = filtered.stream().map(IncidentSummaryDTO::new).toList();
-                    if (limit != null && limit > 0 && limit < list.size()) {
-                        return list.subList(0, limit);
-                    }
-                    return list;
-                } else if ("EMPLOYEE".equals(role)) {
-                    filtered = filterUniqueIncidents(activeIncidents.stream().filter(inc -> currentUsername.equalsIgnoreCase(inc.getReportedBy())).toList());
-                    List<IncidentSummaryDTO> list = filtered.stream().map(IncidentSummaryDTO::new).toList();
-                    if (limit != null && limit > 0 && limit < list.size()) {
-                        return list.subList(0, limit);
-                    }
-                    return list;
-                }
-            }
-        }
-        filtered = filterUniqueIncidents(activeIncidents);
+        List<Incident> filtered = filterUniqueIncidents(activeIncidents);
         List<IncidentSummaryDTO> list = filtered.stream().map(IncidentSummaryDTO::new).toList();
         if (limit != null && limit > 0 && limit < list.size()) {
             return list.subList(0, limit);
@@ -275,33 +287,16 @@ public class IncidentController {
 
     @GetMapping("/active")
     public List<IncidentSummaryDTO> getActive() {
-        List<Incident> activeIncidents = service.findActiveIncidents();
+        List<Incident> baseIncidents = getIncidentsForCurrentUser();
+        List<Incident> activeIncidents = baseIncidents.stream()
+                .filter(i -> "OPEN".equalsIgnoreCase(i.getStatus()) || 
+                             "UNDER_INVESTIGATION".equalsIgnoreCase(i.getStatus()) || 
+                             "ESCALATED".equalsIgnoreCase(i.getStatus()))
+                .toList();
         activeIncidents.forEach(this::syncDescriptionDepartment);
         activeIncidents.forEach(this::updateSlaStatus);
         
-        List<Incident> filtered;
-        org.springframework.security.core.Authentication auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
-        if (auth != null && auth.isAuthenticated()) {
-            String currentUsername = auth.getName();
-            java.util.Optional<User> userOpt = userRepository.findByUsername(currentUsername);
-            if (userOpt.isPresent()) {
-                User user = userOpt.get();
-                String role = user.getRole() != null ? user.getRole().toUpperCase() : "";
-                if ("ANALYST".equals(role)) {
-                    String spec = user.getSpecialization();
-                    filtered = filterUniqueIncidents(activeIncidents.stream().filter(inc -> {
-                        boolean isAssignedToMe = currentUsername.equalsIgnoreCase(inc.getAssignedTo());
-                        boolean isSpecializationMatch = com.cybersoc.service.AnalystAssignmentService.doesSpecializationMatch(inc.getCategory(), spec);
-                        return isAssignedToMe || isSpecializationMatch;
-                    }).toList());
-                    return filtered.stream().map(IncidentSummaryDTO::new).toList();
-                } else if ("EMPLOYEE".equals(role)) {
-                    filtered = filterUniqueIncidents(activeIncidents.stream().filter(inc -> currentUsername.equalsIgnoreCase(inc.getReportedBy())).toList());
-                    return filtered.stream().map(IncidentSummaryDTO::new).toList();
-                }
-            }
-        }
-        filtered = filterUniqueIncidents(activeIncidents);
+        List<Incident> filtered = filterUniqueIncidents(activeIncidents);
         return filtered.stream().map(IncidentSummaryDTO::new).toList();
     }
 
@@ -374,6 +369,20 @@ public class IncidentController {
     // ================= GET OWN INCIDENTS =================
     @GetMapping("/user/{username}")
     public List<IncidentSummaryDTO> getByUser(@PathVariable String username) {
+        org.springframework.security.core.Authentication auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) {
+            throw new org.springframework.security.access.AccessDeniedException("Unauthorized");
+        }
+        String currentUsername = auth.getName();
+        java.util.Optional<User> userOpt = userRepository.findByUsername(currentUsername);
+        if (userOpt.isPresent()) {
+            User user = userOpt.get();
+            String role = user.getRole() != null ? user.getRole().toUpperCase() : "";
+            if (!"ADMIN".equals(role) && !currentUsername.equalsIgnoreCase(username)) {
+                throw new org.springframework.security.access.AccessDeniedException("Forbidden");
+            }
+        }
+
         List<Incident> userIncidents = service.findActiveIncidents().stream()
                 .filter(i -> username.equalsIgnoreCase(i.getReportedBy()))
                 .toList();
@@ -385,16 +394,35 @@ public class IncidentController {
 
     @GetMapping("/my-incidents/{username}")
     public List<IncidentSummaryDTO> getMyIncidents(@PathVariable String username) {
-        List<Incident> allActive = service.findActiveIncidents();
-        allActive.forEach(this::syncDescriptionDepartment);
+        org.springframework.security.core.Authentication auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) {
+            throw new org.springframework.security.access.AccessDeniedException("Unauthorized");
+        }
+        String currentUsername = auth.getName();
+        java.util.Optional<User> userOpt = userRepository.findByUsername(currentUsername);
+        if (userOpt.isPresent()) {
+            User user = userOpt.get();
+            String role = user.getRole() != null ? user.getRole().toUpperCase() : "";
+            if (!"ADMIN".equals(role) && !currentUsername.equalsIgnoreCase(username)) {
+                throw new org.springframework.security.access.AccessDeniedException("Forbidden");
+            }
+        }
+
+        List<Incident> activeAssigned = new java.util.ArrayList<>();
+        java.util.Optional<User> targetUserOpt = userRepository.findByUsername(username);
+        if (targetUserOpt.isPresent()) {
+            User targetUser = targetUserOpt.get();
+            String targetRole = targetUser.getRole() != null ? targetUser.getRole().toUpperCase() : "";
+            if ("ADMIN".equals(targetRole)) {
+                activeAssigned = service.getIncidentsForAdmin();
+            } else if ("ANALYST".equals(targetRole)) {
+                activeAssigned = service.getIncidentsForAnalyst(username);
+            } else if ("EMPLOYEE".equals(targetRole)) {
+                activeAssigned = service.getIncidentsForEmployee(username);
+            }
+        }
         
-        List<Incident> activeAssigned = allActive.stream()
-                .filter(i -> i.getAssignedTo() != null && 
-                    (i.getAssignedTo().equalsIgnoreCase(username) || 
-                     i.getAssignedTo().toLowerCase().startsWith(username.toLowerCase() + " (") ||
-                     i.getAssignedTo().toLowerCase().startsWith(username.toLowerCase() + " ")))
-                .toList();
-        
+        activeAssigned.forEach(this::syncDescriptionDepartment);
         activeAssigned.forEach(this::updateSlaStatus);
         List<Incident> filtered = filterUniqueIncidents(activeAssigned);
         return filtered.stream().map(IncidentSummaryDTO::new).toList();
@@ -402,9 +430,27 @@ public class IncidentController {
 
     @GetMapping("/resolved")
     public List<ResolvedIncidentSummaryDTO> getResolvedIncidents() {
-        List<ResolvedIncident> allResolved = new java.util.ArrayList<>(resolvedIncidentRepository.findAll());
+        org.springframework.security.core.Authentication auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        String currentUsername = (auth != null && auth.isAuthenticated()) ? auth.getName() : null;
+        String role = "ADMIN";
+        if (currentUsername != null) {
+            java.util.Optional<User> userOpt = userRepository.findByUsername(currentUsername);
+            if (userOpt.isPresent()) {
+                role = userOpt.get().getRole() != null ? userOpt.get().getRole().toUpperCase() : "ADMIN";
+            }
+        }
+
+        List<ResolvedIncident> allResolved = new java.util.ArrayList<>();
+        if ("ADMIN".equals(role)) {
+            allResolved.addAll(resolvedIncidentRepository.findAll());
+        } else if ("ANALYST".equals(role)) {
+            allResolved.addAll(resolvedIncidentRepository.findByAssignedAnalyst(currentUsername));
+        } else if ("EMPLOYEE".equals(role)) {
+            allResolved.addAll(resolvedIncidentRepository.findByReportedBy(currentUsername));
+        }
         
-        List<Incident> activeResolved = service.getAll().stream()
+        List<Incident> baseIncidents = getIncidentsForCurrentUser();
+        List<Incident> activeResolved = baseIncidents.stream()
                 .filter(i -> "RESOLVED".equalsIgnoreCase(i.getStatus()) || 
                              "PENDING_APPROVAL".equalsIgnoreCase(i.getStatus()) || 
                              "PENDING_ADMIN_APPROVAL".equalsIgnoreCase(i.getStatus()) ||
@@ -418,79 +464,34 @@ public class IncidentController {
             }
         }
         
-        List<ResolvedIncident> filtered;
-        org.springframework.security.core.Authentication auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
-        if (auth != null && auth.isAuthenticated()) {
-            String currentUsername = auth.getName();
-            java.util.Optional<User> userOpt = userRepository.findByUsername(currentUsername);
-            if (userOpt.isPresent()) {
-                User user = userOpt.get();
-                String role = user.getRole() != null ? user.getRole().toUpperCase() : "";
-                if ("ANALYST".equals(role)) {
-                    String spec = user.getSpecialization();
-                    filtered = filterUniqueResolvedIncidents(allResolved.stream().filter(inc -> {
-                        boolean isAssignedToMe = currentUsername.equalsIgnoreCase(inc.getAssignedAnalyst());
-                        boolean isSpecializationMatch = com.cybersoc.service.AnalystAssignmentService.doesSpecializationMatch(inc.getCategory(), spec);
-                        return isAssignedToMe || isSpecializationMatch;
-                    }).toList());
-                    return filtered.stream().map(ResolvedIncidentSummaryDTO::new).toList();
-                } else if ("EMPLOYEE".equals(role)) {
-                    filtered = filterUniqueResolvedIncidents(allResolved.stream().filter(inc -> 
-                        currentUsername.equalsIgnoreCase(inc.getReportedBy())
-                    ).toList());
-                    return filtered.stream().map(ResolvedIncidentSummaryDTO::new).toList();
-                }
-            }
-        }
-        filtered = filterUniqueResolvedIncidents(allResolved);
+        List<ResolvedIncident> filtered = filterUniqueResolvedIncidents(allResolved);
         return filtered.stream().map(ResolvedIncidentSummaryDTO::new).toList();
     }
 
     @GetMapping("/pending-approval")
     public List<IncidentSummaryDTO> getPendingApproval() {
-        List<Incident> allIncidents = service.getAll();
-        allIncidents.forEach(this::syncDescriptionDepartment);
-        allIncidents.forEach(this::updateSlaStatus);
-        
-        List<Incident> pending = allIncidents.stream()
+        List<Incident> baseIncidents = getIncidentsForCurrentUser();
+        List<Incident> pending = baseIncidents.stream()
                 .filter(i -> "PENDING_APPROVAL".equalsIgnoreCase(i.getStatus()) || 
                              "PENDING_ADMIN_APPROVAL".equalsIgnoreCase(i.getStatus()))
                 .toList();
-                
-        List<Incident> filtered;
-        org.springframework.security.core.Authentication auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
-        if (auth != null && auth.isAuthenticated()) {
-            String currentUsername = auth.getName();
-            java.util.Optional<User> userOpt = userRepository.findByUsername(currentUsername);
-            if (userOpt.isPresent()) {
-                User user = userOpt.get();
-                String role = user.getRole() != null ? user.getRole().toUpperCase() : "";
-                if ("ANALYST".equals(role)) {
-                    String spec = user.getSpecialization();
-                    filtered = filterUniqueIncidents(pending.stream().filter(inc -> {
-                        boolean isAssignedToMe = currentUsername.equalsIgnoreCase(inc.getAssignedTo());
-                        boolean isSpecializationMatch = com.cybersoc.service.AnalystAssignmentService.doesSpecializationMatch(inc.getCategory(), spec);
-                        return isAssignedToMe || isSpecializationMatch;
-                    }).toList());
-                    return filtered.stream().map(IncidentSummaryDTO::new).toList();
-                } else if ("EMPLOYEE".equals(role)) {
-                    filtered = filterUniqueIncidents(pending.stream().filter(inc -> 
-                        currentUsername.equalsIgnoreCase(inc.getReportedBy())
-                    ).toList());
-                    return filtered.stream().map(IncidentSummaryDTO::new).toList();
-                }
-            }
-        }
-        filtered = filterUniqueIncidents(pending);
+        pending.forEach(this::syncDescriptionDepartment);
+        pending.forEach(this::updateSlaStatus);
+        
+        List<Incident> filtered = filterUniqueIncidents(pending);
         return filtered.stream().map(IncidentSummaryDTO::new).toList();
     }
 
     // ================= AI ANALYST RECOMMENDATION =================
     @GetMapping("/{id}/recommend-analyst")
-    public ResponseEntity<Map<String, Object>> recommendAnalyst(@PathVariable Long id) {
+    public ResponseEntity<?> recommendAnalyst(@PathVariable Long id) {
         Incident incident = service.getByIdOrNull(id);
         if (incident == null) {
             return ResponseEntity.notFound().build();
+        }
+        if (!isAuthorizedForIncident(incident)) {
+            return ResponseEntity.status(org.springframework.http.HttpStatus.FORBIDDEN)
+                    .body(java.util.Map.of("success", false, "message", "Access denied."));
         }
 
         User bestAnalyst = assignmentService.getAiRecommendedAnalyst(incident);
@@ -574,10 +575,14 @@ public class IncidentController {
 
     // ================= AI INCIDENT CLOSURE VALIDATION =================
     @GetMapping("/{id}/validate-closure")
-    public ResponseEntity<Map<String, Object>> validateClosure(@PathVariable Long id) {
+    public ResponseEntity<?> validateClosure(@PathVariable Long id) {
         Incident incident = service.getByIdOrNull(id);
         if (incident == null) {
             return ResponseEntity.notFound().build();
+        }
+        if (!isAuthorizedForIncident(incident)) {
+            return ResponseEntity.status(org.springframework.http.HttpStatus.FORBIDDEN)
+                    .body(java.util.Map.of("success", false, "message", "Access denied."));
         }
 
         List<com.cybersoc.model.Attachment> attachments = attachmentRepository.findByIncidentId(id);
@@ -791,10 +796,14 @@ public class IncidentController {
 
     // ================= GET BY ID =================
     @GetMapping("/{id}")
-    public ResponseEntity<Incident> getById(@PathVariable Long id) {
+    public ResponseEntity<?> getById(@PathVariable Long id) {
         Incident incident = service.getByIdOrNull(id);
         if (incident == null) {
             return ResponseEntity.notFound().build();
+        }
+        if (!isAuthorizedForIncident(incident)) {
+            return ResponseEntity.status(org.springframework.http.HttpStatus.FORBIDDEN)
+                    .body(java.util.Map.of("success", false, "message", "Access denied: You are not authorized to view this incident."));
         }
         syncDescriptionDepartment(incident);
         updateSlaStatus(incident);
@@ -817,6 +826,7 @@ public class IncidentController {
     public Incident updateStatus(@PathVariable Long id, @RequestBody Incident req) {
         Incident incident = service.getByIdOrNull(id);
         if (incident != null) {
+            checkAuth(incident);
             String oldStatus = incident.getStatus();
             String oldPriority = incident.getPriority();
             incident.setStatus(req.getStatus());
@@ -868,6 +878,7 @@ public class IncidentController {
     public Incident assignIncident(@PathVariable Long id, @RequestBody Map<String, String> req) {
         Incident incident = service.getByIdOrNull(id);
         if (incident != null) {
+            checkAuth(incident);
             String oldAssignee = incident.getAssignedTo();
             String newAssignee = req.get("assignedTo");
             if (newAssignee != null) {
@@ -1053,6 +1064,11 @@ public class IncidentController {
     public Incident updateAdminRemarks(@PathVariable Long id, @RequestBody Map<String, String> req) {
         Incident incident = service.getByIdOrNull(id);
         if (incident != null) {
+            org.springframework.security.core.Authentication auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+            boolean isAdmin = auth != null && auth.getAuthorities().stream().anyMatch(a -> "ROLE_ADMIN".equalsIgnoreCase(a.getAuthority()));
+            if (!isAdmin) {
+                throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN, "Access denied.");
+            }
             incident.setAdminRemarks(req.get("adminRemarks"));
             incident.setUpdatedTime(now());
             Incident saved = service.save(incident);
@@ -1143,8 +1159,12 @@ public class IncidentController {
         if (incident == null) {
             return null;
         }
-
         org.springframework.security.core.Authentication auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        boolean isAdmin = auth != null && auth.getAuthorities().stream().anyMatch(a -> "ROLE_ADMIN".equalsIgnoreCase(a.getAuthority()));
+        if (!isAdmin) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN, "Access denied.");
+        }
+
         String approver = auth != null ? auth.getName() : "Admin";
 
         String adminRemarks = req != null ? req.get("adminRemarks") : null;
@@ -1266,8 +1286,12 @@ public class IncidentController {
         if (incident == null) {
             return null;
         }
-
         org.springframework.security.core.Authentication auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        boolean isAdmin = auth != null && auth.getAuthorities().stream().anyMatch(a -> "ROLE_ADMIN".equalsIgnoreCase(a.getAuthority()));
+        if (!isAdmin) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN, "Access denied.");
+        }
+
         String approver = auth != null ? auth.getName() : "Admin";
 
         String rejectionReason = req != null ? req.get("rejectionReason") : null;
@@ -1324,6 +1348,14 @@ public class IncidentController {
     // ================= DELETE ACTIVE =================
     @DeleteMapping("/{id}")
     public String delete(@PathVariable Long id) {
+        Incident incident = service.getByIdOrNull(id);
+        if (incident != null) {
+            org.springframework.security.core.Authentication auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+            boolean isAdmin = auth != null && auth.getAuthorities().stream().anyMatch(a -> "ROLE_ADMIN".equalsIgnoreCase(a.getAuthority()));
+            if (!isAdmin) {
+                throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN, "Access denied.");
+            }
+        }
         service.delete(id);
         return "Deleted Successfully";
     }
@@ -1340,26 +1372,9 @@ public class IncidentController {
             return ResponseEntity.notFound().build();
         }
 
-        // Security check: Only assigned analyst can upload if analyst, only reporter if employee, admins always can
-        org.springframework.security.core.Authentication auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
-        if (auth != null && auth.isAuthenticated()) {
-            String currentUsername = auth.getName();
-            java.util.Optional<User> userOpt = userRepository.findByUsername(currentUsername);
-            if (userOpt.isPresent()) {
-                User user = userOpt.get();
-                String role = user.getRole() != null ? user.getRole().toUpperCase() : "";
-                if ("ANALYST".equals(role)) {
-                    if (incident.getAssignedTo() == null || !incident.getAssignedTo().equalsIgnoreCase(currentUsername)) {
-                        return ResponseEntity.status(org.springframework.http.HttpStatus.FORBIDDEN)
-                                .body(Map.of("message", "Access denied. You are not the currently assigned analyst."));
-                    }
-                } else if ("EMPLOYEE".equals(role)) {
-                    if (incident.getReportedBy() == null || !incident.getReportedBy().equalsIgnoreCase(currentUsername)) {
-                        return ResponseEntity.status(org.springframework.http.HttpStatus.FORBIDDEN)
-                                .body(Map.of("message", "Access denied. You do not own this incident."));
-                    }
-                }
-            }
+        if (!isAuthorizedForIncident(incident)) {
+            return ResponseEntity.status(org.springframework.http.HttpStatus.FORBIDDEN)
+                    .body(Map.of("message", "Access denied: You are not authorized for this incident."));
         }
 
         try {
@@ -1387,6 +1402,13 @@ public class IncidentController {
     // 2. List metadata
     @GetMapping("/{id}/attachments")
     public ResponseEntity<List<Map<String, Object>>> getAttachments(@PathVariable Long id) {
+        Incident incident = service.getByIdOrNull(id);
+        if (incident == null) {
+            return ResponseEntity.notFound().build();
+        }
+        if (!isAuthorizedForIncident(incident)) {
+            return ResponseEntity.status(org.springframework.http.HttpStatus.FORBIDDEN).build();
+        }
         List<Attachment> list = attachmentRepository.findByIncidentId(id);
         List<Map<String, Object>> result = list.stream().map(a -> {
             Map<String, Object> map = new HashMap<>();
@@ -1415,19 +1437,8 @@ public class IncidentController {
             return ResponseEntity.status(403).body("Incident context not found.");
         }
 
-        String authUsername = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication().getName();
-        boolean isAdmin = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication().getAuthorities().stream()
-                .anyMatch(a -> "ROLE_ADMIN".equalsIgnoreCase(a.getAuthority()));
-        boolean isAnalyst = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication().getAuthorities().stream()
-                .anyMatch(a -> "ROLE_ANALYST".equalsIgnoreCase(a.getAuthority()));
-
-        boolean isOwner = authUsername != null && authUsername.equalsIgnoreCase(incident.getReportedBy());
-        boolean isAssigned = authUsername != null && authUsername.equalsIgnoreCase(incident.getAssignedTo());
-
-        if (!isAdmin && !isAnalyst && !isOwner) {
-            if (!isAssigned) {
-                return ResponseEntity.status(403).body("Access Denied. You do not have permission to download this attachment.");
-            }
+        if (!isAuthorizedForIncident(incident)) {
+            return ResponseEntity.status(403).body("Access Denied. You do not have permission to download this attachment.");
         }
 
         return ResponseEntity.ok()
@@ -1439,12 +1450,20 @@ public class IncidentController {
     // ================= ESCALATION HISTORY =================
     @GetMapping("/{id}/escalations")
     public List<EscalationHistory> getEscalations(@PathVariable Long id) {
+        Incident incident = service.getByIdOrNull(id);
+        if (incident == null || !isAuthorizedForIncident(incident)) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN, "Access denied.");
+        }
         return escalationHistoryRepository.findByIncidentId(id);
     }
 
     // ================= ASSIGNMENT HISTORY =================
     @GetMapping("/{id}/assignments")
     public List<com.cybersoc.model.AssignmentHistory> getAssignments(@PathVariable Long id) {
+        Incident incident = service.getByIdOrNull(id);
+        if (incident == null || !isAuthorizedForIncident(incident)) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN, "Access denied.");
+        }
         return assignmentHistoryRepository.findByIncidentId(id);
     }
 
@@ -1489,6 +1508,10 @@ public class IncidentController {
                                 "message", "No incident exists with ID: " + id,
                                 "error", "Incident not found"
                         ));
+            }
+            if (!isAuthorizedForIncident(incident)) {
+                return ResponseEntity.status(org.springframework.http.HttpStatus.FORBIDDEN)
+                        .body(Map.of("success", false, "message", "Access denied: You are not authorized for this incident."));
             }
             System.out.println("[DIAGNOSTICS] Incident loaded successfully from MySQL.");
             System.out.println("[DIAGNOSTICS] Title: " + incident.getTitle());
@@ -1689,25 +1712,9 @@ public class IncidentController {
     }
 
     private void checkAuth(Incident incident) {
-        org.springframework.security.core.Authentication auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
-        if (auth == null || !auth.isAuthenticated()) {
-            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.UNAUTHORIZED, "Unauthorized");
+        if (!isAuthorizedForIncident(incident)) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN, "Access denied: You are not authorized for this incident.");
         }
-        String currentUsername = auth.getName();
-        java.util.Optional<User> userOpt = userRepository.findByUsername(currentUsername);
-        if (userOpt.isPresent()) {
-            User user = userOpt.get();
-            String role = user.getRole() != null ? user.getRole().toUpperCase() : "";
-            if ("ADMIN".equals(role)) {
-                return; // Admins always authorized
-            }
-            if ("ANALYST".equals(role)) {
-                if (incident.getAssignedTo() != null && incident.getAssignedTo().equalsIgnoreCase(currentUsername)) {
-                    return; // Authorized if assigned to them!
-                }
-            }
-        }
-        throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN, "Access denied. Only the currently assigned analyst may modify active incidents.");
     }
 
     private boolean checkHasRelated(Incident incident) {
@@ -1734,6 +1741,9 @@ public class IncidentController {
         Incident incident = service.getByIdOrNull(id);
         if (incident == null) {
             return ResponseEntity.notFound().build();
+        }
+        if (!isAuthorizedForIncident(incident)) {
+            return ResponseEntity.status(org.springframework.http.HttpStatus.FORBIDDEN).build();
         }
 
         String status = req.get("status"); // Approved, Rejected, Modified
@@ -1783,6 +1793,9 @@ public class IncidentController {
         Incident incident = service.getByIdOrNull(id);
         if (incident == null) {
             return ResponseEntity.notFound().build();
+        }
+        if (!isAuthorizedForIncident(incident)) {
+            return ResponseEntity.status(org.springframework.http.HttpStatus.FORBIDDEN).build();
         }
 
         String state = req.get("checklistState");
